@@ -122,7 +122,7 @@ def arrow_width_min(nozzle=0.8):
     return 5.0 * nozzle
 
 
-def _arrow_dims(width, nozzle, clearance):
+def arrow_dims(width, nozzle=0.8, clearance=0.1):
     """Width-based ramp+hook dovetail dims — the PRINT-VALIDATED scheme (from the
     toothpaste-dispenser work): the barb segments share one `seg`, and the stem
     keeps ≥ 3 beads (seg = min((width−3·nozzle)/2, width/3.5)), so it reproduces
@@ -142,7 +142,7 @@ def _arrow_dims(width, nozzle, clearance):
 def arrow_height(width, nozzle=0.8, clearance=0.1):
     """Tenon height above the mating plane (what the mortise host must swallow)."""
     _, h = _profile(ramp=True, base_z=0.0, nozzle=nozzle,
-                    **_arrow_dims(width, nozzle, clearance))
+                    **arrow_dims(width, nozzle, clearance))
     return h
 
 
@@ -151,7 +151,7 @@ def arrow_tenon(width, length, nozzle=0.8, clearance=0.1, root=1.0):
     -Z→+Z. One `width` knob; prism along +X, base at z=0, `root` below for fusion.
     Pass the SAME width/nozzle/clearance to the mortise so they mate."""
     pts, _ = _profile(ramp=True, base_z=-abs(root), nozzle=nozzle,
-                      **_arrow_dims(width, nozzle, clearance))
+                      **arrow_dims(width, nozzle, clearance))
     return cq.Workplane("YZ").polyline(pts).close().extrude(length)
 
 
@@ -160,7 +160,7 @@ def arrow_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0):
     side (mitred), dropped `drop` below the mating plane to open through the host
     face. Extrude PAST the host's -X face (open entry); the +X end left inside is
     the stop wall. The mortise neck (= width/4) must clear the nozzle."""
-    d = _arrow_dims(width, nozzle, clearance)
+    d = arrow_dims(width, nozzle, clearance)
     if d["stem_h"] - clearance < nozzle - 1e-9:
         raise ValueError(f"width {width:.2f}: mortise neck {d['stem_h'] - clearance:.2f} "
                          f"below the {nozzle} nozzle floor — widen to >= {4 * nozzle:.1f} mm")
