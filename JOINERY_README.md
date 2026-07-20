@@ -261,6 +261,27 @@ The self-test (`py -3.12 joinery.py`) gates all of this: ±Y/±Z locked, X free,
 fat stem (`width/2`, orange < green), the **tenon floor** ≥ nozzle, and the
 **mortise roof** measured at three widths to prove it stays one nozzle.
 
+### Entry POCKET (`octagon_mortise(..., pocket=True)`)
+
+When the slide travel is obstructed — a tenon site whose channel can't reach an
+open face for axial entry — the parts must first mate ALONG Z at an offset
+position, then slide along X to seat. The obstructed site gets a **pocket**:
+the cavity profile with its Z-retention deleted (the waist walls continue
+straight down to the opening face; upper tapers + the one-nozzle roof bridge
+unchanged, so the print story is identical). A tenon rises into it freely
+along Z, stays located in ±Y, and is retained by NOTHING else — a pocket is an
+entry feature, always adjacent to a retained mortise segment the tenon then
+slides into. Also via `slide_joint(...).mortise(pocket=True)` (octagon family
+only; the dovetail's install axis is already Z, and a pocket would raise).
+
+```
+_____________          ____________
+|    __     |          |   __      |     mortise (left) vs pocket (right):
+|   /   \    |          |  /   \     |     same roof + tapers, but the pocket's
+|   \   /    |          |  |     |    |     waist walls drop STRAIGHT to the
+|__|  |__|          |__|     |__|     opening — z-entry, no retention
+```
+
 ## Dovetail joint — install ∥ print-Z (`install="z"`)
 
 The third family exists because of a dimension the other two ignore: the
