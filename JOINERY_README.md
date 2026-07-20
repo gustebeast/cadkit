@@ -22,7 +22,8 @@ ring = ring.cut(j.mortise(drop=2.0).translate(...))   # cavity opens through the
 # j.family / j.install / j.height / j.width_min / j.clearance / j.nozzle — size
 # around it without knowing internals
 
-jz = slide_joint(width=7, length=20, tenon=up, mortise=up, install="z")  # → dovetail
+jz = slide_joint(width=7, length=20, depth=3.5, tenon=up, mortise=up,
+                 install="z")   # → dovetail; width/depth/length = AVAILABLE room
 ```
 
 - **`PrintSpec(nozzle, material, facing)`** — `facing` is `'up'` (−Z→+Z) or `'side'`
@@ -282,8 +283,10 @@ prints as drawn:
 ```python
 from cadkit.joinery import dovetail_tenon, dovetail_mortise, dovetail_height
 
-ten = dovetail_tenon(width=7, length=20)                    # prism along +Z
-cut = dovetail_mortise(width=7, length=24, clearance=0.15)  # cavity, dilated
+# width/depth are the AVAILABLE room (across the face / into the host) — the
+# profile inside is OPTIMIZED for strength, and may use less than the room.
+ten = dovetail_tenon(width=7, depth=3.5, length=20)                    # prism along +Z
+cut = dovetail_mortise(width=7, depth=3.5, length=24, clearance=0.15)  # cavity, dilated
 wall = wall.union(ten.translate(...))    # root (1 mm) fuses into the thin host
 beam = beam.cut(cut.translate(...))      # far Z-end left inside = the hard stop
 ```
@@ -293,10 +296,27 @@ about Z to aim it radially), mating plane at x=0; the prism extrudes along +Z.
 The joint locks ±X (neck lips / head end wall) and ±Y (flanks); **±Z is free by
 design** — the caller closes one end with a stop (un-cut host material past the
 cavity's far end) and guards the other with a preload or the next part in the
-stack. One `width` knob: neck = width/2, depth = width/2, retention shoulder =
-width/4 per side (floors at `dovetail_width_min` = 4·nozzle). Clearance policy
-is the same print-tested table as the other families; it dilates the mortise
-only.
+stack.
+
+**Sizing = room in, optimized profile out.** The three parameters are the
+mortise's AVAILABLE space — `length` (tall, the Z engagement — used fully;
+taller is always stronger), `depth` (into the host), `width` (across the face)
+— NOT the joint's dimensions. The profile is derived by growing the pull-out
+capacity `min(neck tension, lip shear, shoulder bearing)` until a bound binds
+(shear ≈ 0.6·σ, bearing ≈ 1.5·σ):
+
+    neck       = min(0.6·width, 1.2·depth)
+    shoulder o = max(nozzle, neck/3)
+    head       = neck + 2·o          (≤ width)
+    depth_used = neck/1.2            — parity depth; SURPLUS ROOM IS NOT USED
+                                       (it stays host material)
+
+so a width-rich site gets a depth-bound joint and vice versa — no dimension is
+filled just because it's there. `dovetail_dims(width, depth, nozzle)` exposes
+the derived `(neck, head, depth_used)`; `dovetail_height` reports what the host
+must actually swallow (depth_used + clearance). Floors: width ≥ 4·nozzle, and
+too-shallow depth (balanced neck < 2 beads) raises. Clearance policy is the
+same print-tested table as the other families; it dilates the mortise only.
 
 ## Adding a variant
 
