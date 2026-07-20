@@ -299,13 +299,38 @@ def octagon_tenon(width, length, nozzle=0.8, clearance=0.1, root=1.0):
     return cq.Workplane("YZ").polyline(pts).close().extrude(length)
 
 
-def octagon_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0):
+def _octagon_pocket_profile(width, nozzle, base_z, clearance):
+    """POCKET variant of the cavity profile: the octagon's waist walls continued
+    STRAIGHT DOWN to the opening face — the lower diagonals + stem neck (the
+    Z-retention) removed, so the tenon can enter along Z. The upper tapers and
+    the one-nozzle roof bridge are unchanged (same print story). ±Y stays
+    located by the waist walls; ±Z and ±X hold nothing — a pocket is an ENTRY
+    feature, always paired with a retained mortise segment the tenon slides
+    into."""
+    pts, z_roof = _octagon_profile(width, nozzle, base_z, clearance)
+    hw = width / 2.0
+    # pts: [stemR base, stemR neck, waistR bot, waistR top, roofR, roofL,
+    #       waistL top, waistL bot, stemL neck, stemL base] — keep waist-top →
+    # roof → waist-top, drop the sides straight to base_z.
+    keep = pts[3:7]
+    return [(hw, base_z)] + keep + [(-hw, base_z)], z_roof
+
+
+def octagon_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0,
+                    pocket=False):
     """Cavity CUTTER — the tenon profile DILATED `clearance` per side (mitred → faces
     stay 45°/vertical) and dropped `drop` below the mating plane so it opens through
     the host's face. Extrude PAST the host's open X-face so the tenon slides in; the
     far end left inside is the stop wall. The printed roof BRIDGE is exactly one
-    nozzle (the tenon roof was pre-shrunk for this)."""
-    pts, _ = _octagon_profile(width, nozzle, -abs(drop), clearance)
+    nozzle (the tenon roof was pre-shrunk for this).
+
+    `pocket=True` cuts the ENTRY-POCKET variant instead: the Z-retention (neck
+    lips) is removed so the tenon can enter straight along Z — used when the
+    slide travel is obstructed and the parts must first mate along Z at an
+    offset position, then slide along X into the adjacent retained mortise.
+    A pocket retains nothing by itself; always pair it with a mortise segment."""
+    prof = _octagon_pocket_profile if pocket else _octagon_profile
+    pts, _ = prof(width, nozzle, -abs(drop), clearance)
     return (cq.Workplane("YZ").polyline(pts).close()
             .offset2D(abs(clearance), "intersection")
             .extrude(length))
@@ -525,7 +550,15 @@ class _SlideJoint:
         return _FAMILY_FUNCS[self.family][0](
             self.width, self.length, self.nozzle, self.clearance, root)
 
-    def mortise(self, drop=2.0):
+    def mortise(self, drop=2.0, pocket=False):
+        if pocket:
+            if self.family != "octagon":
+                raise NotImplementedError(
+                    "pocket mortises are modelled for the octagon family only "
+                    "(the dovetail's install axis IS z — no pocket needed; the "
+                    "arrow's would need its own profile)")
+            return octagon_mortise(self.width, self.length, self.nozzle,
+                                   self.clearance, drop, pocket=True)
         if self.family == "dovetail":
             return dovetail_mortise(self.width, self.depth, self.length,
                                     self.nozzle, self.clearance, drop)
@@ -621,6 +654,25 @@ if __name__ == "__main__":
     ]
     for label, d, expect in ochecks:
         v = vol(ohost.translate(d), oten)
+        ok = (v == 0.0) if expect == "=0" else (v > 0.0)
+        print(f"  {label:<20} {v:>9.3f} mm3 (must be {expect}){'' if ok else '  <-- FAIL'}")
+        if not ok:
+            fails.append(f"octagon: {label} = {v:.3f}")
+    # POCKET variant: Z-retention removed (host lifts off along +z freely), ±Y
+    # still located, slide axis still free — an entry feature, not a retainer.
+    phost = (cq.Workplane("XY").box(20, WIDTH + 8, Hh + 6, centered=(False, True, True))
+             .translate((0, 0, Hh / 2.0))
+             .cut(octagon_mortise(WIDTH, 22, nozzle=NZ, clearance=CLR2, drop=3,
+                                  pocket=True).translate((-1, 0, 0))))
+    pchecks = [
+        ("pocket seated",       (0, 0, 0),  "=0"),
+        ("pocket +z FREE",      (0, 0, g),  "=0"),
+        ("pocket +x free",      (2, 0, 0),  "=0"),
+        ("pocket +y locked",    (0, g, 0),  ">0"),
+        ("pocket -y locked",    (0, -g, 0), ">0"),
+    ]
+    for label, d, expect in pchecks:
+        v = vol(phost.translate(d), oten)
         ok = (v == 0.0) if expect == "=0" else (v > 0.0)
         print(f"  {label:<20} {v:>9.3f} mm3 (must be {expect}){'' if ok else '  <-- FAIL'}")
         if not ok:
@@ -772,6 +824,13 @@ if __name__ == "__main__":
         print("  x-install depth       did NOT raise  <-- FAIL")
     except ValueError:
         print("  x-install depth       raises (ok)")
+    # pocket on a non-octagon family must raise
+    try:
+        slide_joint(6, 12, up, up, install="z").mortise(pocket=True)
+        fails.append("slide_joint: pocket on dovetail did not raise")
+        print("  dovetail pocket       did NOT raise  <-- FAIL")
+    except NotImplementedError:
+        print("  dovetail pocket       raises (ok)")
     # material default + override
     unknown = PrintSpec(material="MysteryPLA")
     ok = (slide_joint(6, 12, unknown, unknown).clearance == _DEFAULT_CLEARANCE and
