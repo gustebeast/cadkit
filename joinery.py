@@ -44,6 +44,13 @@ BOTH-hosts-(-Z→+Z) case with an octagon-on-fat-stem ("stop sign") section: one
 `width` knob (the stem is a computed width/2), the nozzle FLOOR on the tenon and
 the one-nozzle bridge CAP on the mortise roof. See the README's "Octagon joint".
 
+A third FAMILY, `dovetail_tenon` / `dovetail_mortise`, exists because print
+orientation alone under-determines the joint — the INSTALL AXIS (the direction
+deliberately left without retention) matters too. When the install axis is Z
+(`slide_joint(..., install="z")`, both hosts -Z→+Z), the profile lies flat in
+the plan plane and prints as vertical walls, so the classic sharp dovetail
+needs none of the families' print compromises.
+
 Every working face is 45° ON PURPOSE — see the README for why the shared
 ramp face can't be steepened for one part without hurting the other. The
 only flat is the dull tip: it's pre-shrunk so the MORTISE bridge lands on
@@ -304,12 +311,88 @@ def octagon_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0):
             .extrude(length))
 
 
+# ─────────────────── DOVETAIL (install ∥ print-Z) slide joint ─────────────────
+# Third family, unlocked by the INSTALL AXIS rather than a print trick: print
+# orientation alone under-determines a slide joint — the INSTALL direction (the
+# one axis deliberately left without retention) matters just as much. When that
+# axis is Z, the same axis both hosts print in, the profile lies flat in the
+# X-Y plane and every working face is a printed VERTICAL WALL. No overhangs
+# anywhere, so no arrow ramp and no octagon roof bridge: the classic sharp
+# dovetail prints as drawn.
+# Convention: profile in the local (x, y) PLAN plane — width across Y (like the
+# other families), the head flares toward +X (rotate about Z to aim it), mating
+# plane at x=0 — and the prism extrudes along +Z, the INSTALL axis. The joint
+# constrains ±X (neck lips / head end wall) and ±Y (flank walls) by shape; ±Z
+# is free by design. The caller closes ONE Z-end with a hard stop (un-cut host
+# material past the cavity's far end) and guards the other with a preload or
+# the next part in the stack.
+
+_DT_NECK_FRAC  = 0.5   # neck = width/2 (fat neck; retention shoulder = width/4 per side)
+_DT_DEPTH_FRAC = 0.5   # head depth (radial engagement past the mating plane) = width/2
+
+
+def dovetail_width_min(nozzle=0.8):
+    """Smallest `width` whose narrowest printed feature (the width/4 retention
+    shoulder per side) clears the nozzle floor."""
+    return 4.0 * nozzle
+
+
+def dovetail_height(width, nozzle=0.8, clearance=0.1):
+    """Protrusion past the mating plane (what the mortise host must swallow),
+    clearance included."""
+    return _DT_DEPTH_FRAC * width + clearance
+
+
+def _dovetail_profile(width, nozzle, back):
+    """Closed (x, y) plan-view points for the TENON: neck width/2 at the mating
+    plane (x=0), head `width` wide at x=width/2, `back` extension behind the
+    plane (tenon root / mortise opening drop)."""
+    wmin = dovetail_width_min(nozzle)
+    if width < wmin - 1e-9:
+        raise ValueError(f"width {width:.3f} is below the printable minimum "
+                         f"{wmin:.3f} mm (a retention shoulder would drop under the "
+                         f"{nozzle} nozzle) — give the joint more room, or use a "
+                         "finer nozzle")
+    neck = _DT_NECK_FRAC * width / 2.0     # half neck = width/4
+    head = width / 2.0                     # half head
+    depth = _DT_DEPTH_FRAC * width
+    return [(-back, -neck), (0.0, -neck), (depth, -head),
+            (depth, head), (0.0, head), (-back, neck)]
+
+
+def dovetail_tenon(width, length, nozzle=0.8, clearance=0.1, root=1.0):
+    """Dovetail TENON: a plan-view trapezoid prism along +Z (the INSTALL axis),
+    mating plane at x=0, head toward +X, extended `root` behind the plane for
+    volumetric fusion into its host. Both hosts print -Z→+Z; every face is a
+    vertical wall. (`clearance` is applied on the mortise side only; it sits in
+    the signature so slide_joint can pass one triple to both halves.)"""
+    pts = _dovetail_profile(width, nozzle, abs(root))
+    return cq.Workplane("XY").polyline(pts).close().extrude(length)
+
+
+def dovetail_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0):
+    """Cavity CUTTER — the tenon plan profile DILATED `clearance` per side
+    (mitred → angles preserved) and extended `drop` behind the mating plane so
+    it opens through the host's face. Extrude PAST the host's open Z-end (pass a
+    longer `length` / translate) so the tenon can enter; the far end left inside
+    the host is the hard stop."""
+    pts = _dovetail_profile(width, nozzle, abs(drop))
+    return (cq.Workplane("XY").polyline(pts).close()
+            .offset2D(abs(clearance), "intersection")
+            .extrude(length))
+
+
 # ─────────────────── Unified print-aware entry point ─────────────────────────
-# One entrypoint for both joint families. The consumer describes how each half
-# PRINTS (a PrintSpec: nozzle, material, facing) and the room it has (width,
-# length); the facings pick the shape and the materials pick the clearance:
-#   • tenon 'up',   mortise 'up'   → octagon (both parts print -Z→+Z)
-#   • tenon 'side', mortise 'up'   → ramp+hook dovetail (tenon prints -Y→+Y)
+# One entrypoint for all joint families. The consumer describes how each half
+# PRINTS (a PrintSpec: nozzle, material, facing), the room it has (width,
+# length), and the INSTALL axis — the one direction deliberately left without
+# retention; the facings + install axis pick the shape and the materials pick
+# the clearance:
+#   install='x' (slide ⊥ print-Z, the default):
+#     • tenon 'up',   mortise 'up'   → octagon (both parts print -Z→+Z)
+#     • tenon 'side', mortise 'up'   → ramp+hook dovetail (tenon prints -Y→+Y)
+#   install='z' (slide ∥ print-Z — profile prints as vertical walls):
+#     • tenon 'up',   mortise 'up'   → plain dovetail
 # Other combinations aren't modelled yet and raise.
 
 # Fit clearance per side, print-VALIDATED (small joints, ~0.8 nozzle). Clearance is
@@ -344,16 +427,37 @@ def _clearance_for(tenon, mortise, override):
     return max(found) if found else _DEFAULT_CLEARANCE
 
 
+_FAMILY_FUNCS = {
+    "octagon":  (octagon_tenon,  octagon_mortise,  octagon_height,  octagon_width_min),
+    "arrow":    (arrow_tenon,    arrow_mortise,    arrow_height,    arrow_width_min),
+    "dovetail": (dovetail_tenon, dovetail_mortise, dovetail_height, dovetail_width_min),
+}
+
+
 class _SlideJoint:
     """Result of `slide_joint`: call `.tenon(root=…)` / `.mortise(drop=…)` for the two
-    solids. Attributes: `.family` ('octagon'|'arrow'), `.height` (how deep the
-    mortise host must be), `.width_min` (the printable floor), `.clearance`, and
-    `.nozzle` (the coarser of the two halves)."""
-    def __init__(self, width, length, tenon, mortise, clearance):
+    solids. Attributes: `.family` ('octagon'|'arrow'|'dovetail'), `.install` ('x'|'z'),
+    `.height` (how deep the mortise host must be), `.width_min` (the printable
+    floor), `.clearance`, and `.nozzle` (the coarser of the two halves)."""
+    def __init__(self, width, length, tenon, mortise, clearance, install):
+        if install not in ("x", "z"):
+            raise ValueError("install must be 'x' or 'z', got %r" % (install,))
         self.width, self.length, self.clearance = width, length, clearance
+        self.install = install
         self.nozzle = max(tenon.nozzle, mortise.nozzle)   # coarser drives the min feature
         kind = (tenon.facing, mortise.facing)
-        if kind == ("up", "up"):
+        if install == "z":
+            # Slide axis ∥ print-Z: the profile lies in the plan plane, so its
+            # faces are vertical printed walls — but ONLY for hosts printing
+            # -Z→+Z. A side-printed host would see the profile's -Y-normal
+            # faces as full 90° overhangs.
+            if kind != ("up", "up"):
+                raise NotImplementedError(
+                    "install='z' needs BOTH hosts printing -Z→+Z (facing 'up'); "
+                    "got tenon '%s' + mortise '%s' — a side-printed host would "
+                    "overhang the plan profile" % kind)
+            self.family = "dovetail"
+        elif kind == ("up", "up"):
             self.family = "octagon"
         elif kind == ("side", "up"):
             self.family = "arrow"
@@ -361,27 +465,29 @@ class _SlideJoint:
             raise NotImplementedError(
                 "no joint for tenon '%s' + mortise '%s' yet (have up+up, side+up) — "
                 "add the variant the way threads.py grew" % kind)
-        self.height = (octagon_height if self.family == "octagon" else arrow_height)(
-            self.width, self.nozzle, self.clearance)
-        self.width_min = (octagon_width_min if self.family == "octagon"
-                          else arrow_width_min)(self.nozzle)
+        _, _, f_height, f_wmin = _FAMILY_FUNCS[self.family]
+        self.height = f_height(self.width, self.nozzle, self.clearance)
+        self.width_min = f_wmin(self.nozzle)
 
     def tenon(self, root=1.0):
-        f = octagon_tenon if self.family == "octagon" else arrow_tenon
-        return f(self.width, self.length, self.nozzle, self.clearance, root)
+        return _FAMILY_FUNCS[self.family][0](
+            self.width, self.length, self.nozzle, self.clearance, root)
 
     def mortise(self, drop=2.0):
-        f = octagon_mortise if self.family == "octagon" else arrow_mortise
-        return f(self.width, self.length, self.nozzle, self.clearance, drop)
+        return _FAMILY_FUNCS[self.family][1](
+            self.width, self.length, self.nozzle, self.clearance, drop)
 
 
-def slide_joint(width, length, tenon, mortise, clearance=None):
-    """Build a printable slide joint sized to the room (`width`, `length`) and the
-    way each half prints (`tenon`, `mortise`: PrintSpec). Facings pick the shape;
-    material picks the clearance (override with `clearance=`). Returns a _SlideJoint
-    with `.tenon(root)` / `.mortise(drop)`."""
+def slide_joint(width, length, tenon, mortise, clearance=None, install="x"):
+    """Build a printable slide joint sized to the room (`width`, `length`), the
+    way each half prints (`tenon`, `mortise`: PrintSpec), and the INSTALL axis —
+    the one direction deliberately left without retention. `install='x'` (default)
+    slides ⊥ print-Z (facings pick octagon or arrow); `install='z'` slides ∥
+    print-Z (both hosts must print 'up'; a plain dovetail — its plan profile
+    prints as vertical walls). Material picks the clearance (override with
+    `clearance=`). Returns a _SlideJoint with `.tenon(root)` / `.mortise(drop)`."""
     return _SlideJoint(width, length, tenon, mortise,
-                       _clearance_for(tenon, mortise, clearance))
+                       _clearance_for(tenon, mortise, clearance), install)
 
 
 # ── Self-test: geometry gates (run `py -3.12 joinery.py`) ────────────────────
@@ -503,22 +609,69 @@ if __name__ == "__main__":
     except ValueError:
         print(f"  width floor           raises below {wmin:.2f} mm (ok)")
 
+    # ── dovetail (install ∥ print-Z): both hosts -Z→+Z, slides along Z ──
+    print("-- dovetail --")
+    DW, NZ3, CLR3 = 6.0, 0.8, 0.1
+    Dh = dovetail_height(DW, NZ3, CLR3)
+    dten = dovetail_tenon(DW, 14, nozzle=NZ3, clearance=CLR3)        # z 0..14
+    dhost = (cq.Workplane("XY").box(Dh + 6, DW + 8, 20, centered=(False, True, False))
+             .translate((0, 0, -3))                                  # z -3..17, face at x=0
+             .cut(dovetail_mortise(DW, 22, nozzle=NZ3, clearance=CLR3, drop=3)
+                  .translate((0, 0, -4))))                           # through-slot in z
+    n_solids = len(dten.val().Solids())
+    if n_solids != 1:
+        fails.append(f"dovetail: tenon is {n_solids} solids")
+    g = CLR3 + 0.2
+    dchecks = [
+        ("seated",              (0, 0, 0),  "=0"),
+        ("+z slide free",       (0, 0, 2),  "=0"),
+        ("-z slide free",       (0, 0, -2), "=0"),
+        ("+x push locked",      (g, 0, 0),  ">0"),
+        ("-x pull locked",      (-g, 0, 0), ">0"),
+        ("+y locked",           (0, g, 0),  ">0"),
+        ("-y locked",           (0, -g, 0), ">0"),
+    ]
+    for label, d, expect in dchecks:
+        v = vol(dhost.translate(d), dten)
+        ok = (v == 0.0) if expect == "=0" else (v > 0.0)
+        print(f"  {label:<20} {v:>9.3f} mm3 (must be {expect}){'' if ok else '  <-- FAIL'}")
+        if not ok:
+            fails.append(f"dovetail: {label} = {v:.3f}")
+    # width floor raises
+    try:
+        dovetail_tenon(dovetail_width_min(NZ3) - 0.2, 10, nozzle=NZ3)
+        fails.append("dovetail: sub-minimum width did not raise")
+        print("  width floor           did NOT raise  <-- FAIL")
+    except ValueError:
+        print(f"  width floor           raises below {dovetail_width_min(NZ3):.2f} mm (ok)")
+
     # ── unified slide_joint dispatch ──
     print("-- slide_joint --")
     up = PrintSpec(nozzle=0.8, material="PETG-GF", facing="up")
     side = PrintSpec(nozzle=0.8, material="PETG-GF", facing="side")
     cases = [
-        ("up+up -> octagon", up, up, octagon_tenon(6.0, 12, 0.8, 0.1).val().Volume()),
-        ("side+up -> arrow", side, up, arrow_tenon(5.6, 12, 0.8, 0.1).val().Volume()),
+        ("up+up -> octagon", up, up, "x",
+         octagon_tenon(6.0, 12, 0.8, 0.1).val().Volume()),
+        ("side+up -> arrow", side, up, "x",
+         arrow_tenon(5.6, 12, 0.8, 0.1).val().Volume()),
+        ("up+up z -> dovetail", up, up, "z",
+         dovetail_tenon(6.0, 12, 0.8, 0.1).val().Volume()),
     ]
-    for label, tspec, mspec, want_vol in cases:
+    for label, tspec, mspec, inst, want_vol in cases:
         w = 6.0 if tspec.facing == "up" else 5.6
-        j = slide_joint(w, 12, tenon=tspec, mortise=mspec)
+        j = slide_joint(w, 12, tenon=tspec, mortise=mspec, install=inst)
         got = j.tenon().val().Volume()
         ok = abs(got - want_vol) < 1e-3 and j.clearance == 0.1
-        print(f"  {label:<20} clr={j.clearance} vol={got:.1f}{'' if ok else '  <-- FAIL'}")
+        print(f"  {label:<22} clr={j.clearance} vol={got:.1f}{'' if ok else '  <-- FAIL'}")
         if not ok:
             fails.append(f"slide_joint: {label} vol {got:.1f}/{want_vol:.1f} clr {j.clearance}")
+    # install='z' with a side-printed host must raise (plan profile would overhang)
+    try:
+        slide_joint(6, 12, side, up, install="z")
+        fails.append("slide_joint: install='z' with side host did not raise")
+        print("  z-install side host   did NOT raise  <-- FAIL")
+    except NotImplementedError:
+        print("  z-install side host   raises (ok)")
     # material default + override
     unknown = PrintSpec(material="MysteryPLA")
     ok = (slide_joint(6, 12, unknown, unknown).clearance == _DEFAULT_CLEARANCE and

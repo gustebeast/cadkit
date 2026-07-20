@@ -6,8 +6,9 @@ adding variants.
 
 ## Single entrypoint — start here
 
-Don't pick a joint type. Describe how each half **prints** and the **room** it has;
-the library picks the printable family and the fit clearance.
+Don't pick a joint type. Describe how each half **prints**, the **room** it has,
+and the **install axis**; the library picks the printable family and the fit
+clearance.
 
 ```python
 from cadkit.joinery import PrintSpec, slide_joint
@@ -18,17 +19,26 @@ side = PrintSpec(nozzle=0.8, material="PETG-GF", facing="side")  # part prints -
 j = slide_joint(width=5.6, length=6, tenon=side, mortise=up)     # facings pick the family
 host = host.union(j.tenon(root=1.0).translate(...))   # tenon fuses into its host
 ring = ring.cut(j.mortise(drop=2.0).translate(...))   # cavity opens through the face
-# j.family / j.height / j.width_min / j.clearance / j.nozzle — size around it without
-# knowing internals
+# j.family / j.install / j.height / j.width_min / j.clearance / j.nozzle — size
+# around it without knowing internals
+
+jz = slide_joint(width=7, length=20, tenon=up, mortise=up, install="z")  # → dovetail
 ```
 
 - **`PrintSpec(nozzle, material, facing)`** — `facing` is `'up'` (−Z→+Z) or `'side'`
   (−Y→+Y). `material` picks the fit clearance from a print-validated table
   (`PETG-GF → 0.1`), falling back to a **default (0.15)** when unknown; override any
   time with `slide_joint(…, clearance=…)`.
-- **Facings pick the family:** `up + up` → the octagon; `side + up` → the arrow
-  ramp+hook. Any unmodelled pair **raises** with an "add the variant" pointer — no
-  silent unprintable improvisation.
+- **`install`** — the slide/install axis: the ONE direction deliberately left
+  without retention (print orientation alone under-determines a slide joint).
+  `'x'` (default) slides ⊥ print-Z — the profile faces are overhangs, so the
+  facings pick a print-compromise family. `'z'` slides ∥ print-Z — the profile
+  lies flat in the plan plane and prints as vertical walls, so the **plain
+  dovetail** applies (both hosts must face `'up'`; a side host would overhang).
+- **Facings + install pick the family:** `x`: `up + up` → the octagon; `side + up`
+  → the arrow ramp+hook. `z`: `up + up` → the dovetail. Any unmodelled combo
+  **raises** with an "add the variant" pointer — no silent unprintable
+  improvisation.
 - **Size = room:** `width` (flat-to-flat) and `length` (engagement). Everything else
   is derived and floored per family; the bridge is pinned to one nozzle on the
   mortise. `width` too small → raises at model time with the floor.
@@ -249,6 +259,44 @@ no raw segments to get wrong.
 The self-test (`py -3.12 joinery.py`) gates all of this: ±Y/±Z locked, X free, the
 fat stem (`width/2`, orange < green), the **tenon floor** ≥ nozzle, and the
 **mortise roof** measured at three widths to prove it stays one nozzle.
+
+## Dovetail joint — install ∥ print-Z (`install="z"`)
+
+The third family exists because of a dimension the other two ignore: the
+**install axis** — the one direction a slide joint deliberately leaves without
+retention. The arrow and octagon assume it is X (⊥ print-Z), which is what
+makes their profiles overhang problems needing ramps, hooks, and bridge caps.
+When the joint instead installs **along Z — the same axis both hosts print
+in** — the profile lies flat in the plan (X-Y) plane and every working face is
+a printed **vertical wall**. Nothing overhangs, so the classic sharp dovetail
+prints as drawn:
+
+```
+ ____
+ \     \        plan view (looking down Z): neck = width/2 at the mating
+  \     \       plane, head = width at depth width/2 — sharp flanks are
+  /     /       fine here, every face is a vertical printed wall
+ /___/
+```
+
+```python
+from cadkit.joinery import dovetail_tenon, dovetail_mortise, dovetail_height
+
+ten = dovetail_tenon(width=7, length=20)                    # prism along +Z
+cut = dovetail_mortise(width=7, length=24, clearance=0.15)  # cavity, dilated
+wall = wall.union(ten.translate(...))    # root (1 mm) fuses into the thin host
+beam = beam.cut(cut.translate(...))      # far Z-end left inside = the hard stop
+```
+
+Conventions: profile in the plan plane, width across Y, head toward +X (rotate
+about Z to aim it radially), mating plane at x=0; the prism extrudes along +Z.
+The joint locks ±X (neck lips / head end wall) and ±Y (flanks); **±Z is free by
+design** — the caller closes one end with a stop (un-cut host material past the
+cavity's far end) and guards the other with a preload or the next part in the
+stack. One `width` knob: neck = width/2, depth = width/2, retention shoulder =
+width/4 per side (floors at `dovetail_width_min` = 4·nozzle). Clearance policy
+is the same print-tested table as the other families; it dilates the mortise
+only.
 
 ## Adding a variant
 
