@@ -357,7 +357,7 @@ def _dovetail_profile(width, nozzle, back):
     head = width / 2.0                     # half head
     depth = _DT_DEPTH_FRAC * width
     return [(-back, -neck), (0.0, -neck), (depth, -head),
-            (depth, head), (0.0, head), (-back, neck)]
+            (depth, head), (0.0, neck), (-back, neck)]
 
 
 def dovetail_tenon(width, length, nozzle=0.8, clearance=0.1, root=1.0):
@@ -637,6 +637,15 @@ if __name__ == "__main__":
         print(f"  {label:<20} {v:>9.3f} mm3 (must be {expect}){'' if ok else '  <-- FAIL'}")
         if not ok:
             fails.append(f"dovetail: {label} = {v:.3f}")
+    # profile is Y-symmetric (a lopsided +Y flank once shipped — the ±Y lock
+    # probes can't see it, so gate the mirror directly)
+    dpts = _dovetail_profile(DW, NZ3, 1.0)
+    fwd = sorted((round(x, 6), round(y, 6)) for x, y in dpts)
+    mir = sorted((round(x, 6), round(-y, 6)) for x, y in dpts)
+    ok = fwd == mir
+    print(f"  profile Y-symmetric   {'ok' if ok else 'ASYMMETRIC  <-- FAIL'}")
+    if not ok:
+        fails.append("dovetail: profile not Y-symmetric")
     # width floor raises
     try:
         dovetail_tenon(dovetail_width_min(NZ3) - 0.2, 10, nozzle=NZ3)
