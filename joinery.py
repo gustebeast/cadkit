@@ -336,6 +336,48 @@ def octagon_mortise(width, length, nozzle=0.8, clearance=0.1, drop=2.0,
             .extrude(length))
 
 
+# ─────────────────── OCTAGON ARC (rotational install) variant ─────────────────
+# For parts that are BOTH already located on a shared axis (e.g. an axle
+# through both centres), no straight slide direction exists — the one free
+# motion is ROTATION about that axis. The install path is then an ARC: offset
+# the moving part by some angle, mate along Z through the open gaps, and
+# rotate to seat against an ANGULAR stop. Geometry = the straight octagon
+# profile placed at `radius` from the Z axis and REVOLVED about it; the sweep
+# is horizontal, so the print rules are identical (both hosts -Z→+Z, roof
+# bridge one nozzle). Angular clearances convert as arc length ≈ radius·angle.
+
+
+def _arc_wire(pts, radius, clearance=0.0):
+    """Closed profile wire in the XZ plane at `radius` (profile y → radial
+    offset), optionally dilated — ready to revolve about global Z."""
+    wp = (cq.Workplane("XZ")
+          .polyline([(radius + y, z) for (y, z) in pts]).close())
+    if clearance:
+        wp = wp.offset2D(abs(clearance), "intersection")
+    return wp
+
+
+def octagon_tenon_arc(width, radius, sweep_deg, nozzle=0.8, clearance=0.1,
+                      root=1.0):
+    """ROTATIONAL-install octagon TENON: the octagon section revolved
+    `sweep_deg` about the Z axis at `radius`. Sweeps from plan angle 0 toward
+    +Y (rotate about Z to place); mating plane z=0, `root` sunk below for
+    volumetric fusion."""
+    pts, _ = _octagon_profile(width, nozzle, -abs(root), clearance)
+    return _arc_wire(pts, radius).revolve(sweep_deg, (0, 0), (0, 1))
+
+
+def octagon_mortise_arc(width, radius, sweep_deg, nozzle=0.8, clearance=0.1,
+                        drop=2.0):
+    """Cavity CUTTER matching octagon_tenon_arc — dilated `clearance` per side
+    (mitred in the radial plane), dropped `drop` below the mating plane, swept
+    over the LONGER arc (engagement + angular entry overshoot + seat). Sweep
+    past the host's open face on the entry side; the far angular end left
+    inside the host is the stop."""
+    pts, _ = _octagon_profile(width, nozzle, -abs(drop), clearance)
+    return _arc_wire(pts, radius, clearance).revolve(sweep_deg, (0, 0), (0, 1))
+
+
 # ─────────────────── DOVETAIL (install ∥ print-Z) slide joint ─────────────────
 # Third family, unlocked by the INSTALL AXIS rather than a print trick: print
 # orientation alone under-determines a slide joint — the INSTALL direction (the
@@ -718,6 +760,39 @@ if __name__ == "__main__":
         print("  width floor           did NOT raise  <-- FAIL")
     except ValueError:
         print(f"  width floor           raises below {wmin:.2f} mm (ok)")
+
+    # ── octagon ARC (rotational install): seats by rotation about Z ──
+    print("-- octagon arc --")
+    AW2, AR = 5.0, 40.0
+    Hh2 = octagon_height(AW2, NZ)
+    seat_a = math.degrees(0.15 / AR)
+    aten2 = octagon_tenon_arc(AW2, AR, 8.0, nozzle=NZ, clearance=CLR2)   # 0..8° CCW
+    # host: full ring; cavity swept from the CW stop (−seat) far past the
+    # tenon's CCW end (open entry side) — CW rotation seats against the stop.
+    ahost2 = (cq.Workplane("XY").workplane(offset=-3.0)
+              .circle(AR + 10).circle(AR - 10).extrude(Hh2 + 6)
+              .cut(octagon_mortise_arc(AW2, AR, 30.0, nozzle=NZ,
+                                       clearance=CLR2, drop=3)
+                   .rotate((0, 0, 0), (0, 0, 1), -seat_a)))
+    g = CLR2 + 0.2
+
+    def _rot(w, d):
+        return w.rotate((0, 0, 0), (0, 0, 1), d)
+
+    archecks = [
+        ("seated",              aten2,                       "=0"),
+        ("CW past stop locked", _rot(aten2, -0.5),           ">0"),
+        ("CCW uninstall free",  _rot(aten2, 2.0),            "=0"),
+        ("+z lift locked",      aten2.translate((0, 0, g)),  ">0"),
+        ("radial out locked",   aten2.translate((g, 0, 0)),  ">0"),
+        ("radial in locked",    aten2.translate((-g, 0, 0)), ">0"),
+    ]
+    for label, solid, expect in archecks:
+        v = vol(ahost2, solid)
+        ok = (v == 0.0) if expect == "=0" else (v > 0.0)
+        print(f"  {label:<20} {v:>9.3f} mm3 (must be {expect}){'' if ok else '  <-- FAIL'}")
+        if not ok:
+            fails.append(f"octagon arc: {label} = {v:.3f}")
 
     # ── dovetail (install ∥ print-Z): both hosts -Z→+Z, slides along Z ──
     print("-- dovetail --")
