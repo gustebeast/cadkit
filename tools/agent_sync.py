@@ -744,8 +744,12 @@ def main():
                                         help="show without consuming")
     sub.add_parser("hook")          # UserPromptSubmit hook (see .claude/settings.json)
     a, extra = ap.parse_known_args()
-    if a.cmd == "view":
-        a.args = extra                      # everything else goes to scratch_view
+    # `view` and `build` both FORWARD flags. nargs=REMAINDER refuses a LEADING option,
+    # so `build --gate-full` died with "unrecognized arguments" -- and because callers
+    # pipe the build through grep, the exit code read 0 and the failure looked like a
+    # clean run. Merge whatever REMAINDER did catch with what parse_known_args left.
+    if a.cmd in ("view", "build"):
+        a.args = list(getattr(a, "args", None) or []) + extra
     elif extra:
         ap.error(f"unrecognized arguments: {' '.join(extra)}")
     {"join": lambda: cmd_join(a.name), "submit": lambda: cmd_submit(a.summary),
