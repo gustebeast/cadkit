@@ -19,6 +19,8 @@ them that are NOT about placement:
   * WHICH BARE PAD IS WHICH. A bring-up guide says "probe SWCLK"; the board has to say
     which pad that is. A test pad (ref TP*) is labelled with its NET where that fits in
     ten characters, else its ref.
+  * WHAT A JUMPER OR A CONTROL IS FOR. A solder jumper (ref JP*) is labelled with its
+    value; `silk_labels` in the board's notes ({"SW1": "RESET"}) names anything else.
   * WHAT A CONNECTOR PIN CARRIES. Each connector (ref J<n>) of LEGEND_MAX_PINS or fewer
     gets its pinout printed -- on the back for choice, where the through-hole tails are.
 
@@ -185,8 +187,12 @@ def _net(pad):
     return n if n and not n.startswith("unconnected") else ""
 
 
-def silk(stem, rev=REV, dark=()):
+def silk(stem, rev=REV, dark=(), labels=None):
     """Label `<stem>.kicad_pcb` in place. Returns the labels that found no free site."""
+    if labels is None and os.path.isfile(stem + ".board.json"):
+        import json
+        with open(stem + ".board.json", encoding="utf-8") as fh:
+            labels = json.load(fh).get("silk_labels", {})
     board = pcbnew.LoadBoard(stem + ".kicad_pcb")
     name = os.path.basename(stem)
     old = [d for d in board.GetDrawings()
@@ -211,6 +217,28 @@ def silk(stem, rev=REV, dark=()):
             done.append("%s=%s" % (ref, ref))
         else:
             missed.append(ref)
+
+    # 1b. the things a PERSON operates or closes, by what they are FOR. A solder jumper
+    #     named JP1 tells whoever holds the iron nothing; its value ("TERM", "BOOT0") does.
+    #     `silk_labels` in <stem>.board.json ({"SW1": "RESET", "D3": "PWR"}) names anything
+    #     else -- buttons, LEDs, a switch position -- and wins over the jumper default.
+    wanted = {}
+    for fp in fps:
+        ref = fp.GetReference()
+        if ref.startswith("JP") and ref[2:].isdigit():
+            val = fp.GetValue().strip()
+            if val and len(val) <= 10 and not val.lower().startswith("solderjumper"):
+                wanted[ref] = val
+    wanted.update(labels or {})
+    for fp in fps:
+        ref = fp.GetReference()
+        if ref not in wanted:
+            continue
+        s = sides[fp.IsFlipped()]
+        if s.place(wanted[ref], SIZE_TP, fp.GetPosition(), 10.0):
+            done.append("%s=%s" % (ref, wanted[ref]))
+        else:
+            missed.append("%s (%s)" % (ref, wanted[ref]))
 
     # 2. the board's own name, as large as will fit, front for choice. BEFORE the
     #    pinouts: on a 10 x 17 mm board there is room for one or the other, and which
