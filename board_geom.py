@@ -63,6 +63,7 @@ HEIGHT = {
     "C_0603_1608Metric": 0.90, "R_0805_2012Metric": 0.65,
     "C_0805_2012Metric": 1.45, "C_1206_3216Metric": 1.60, "C_1210_3225Metric": 1.80,
     "L_0603_1608Metric": 0.95, "Fuse_1206_3216Metric": 1.10,
+    "Fuse_0805_2012Metric": 1.10,                # 0805 PTC: 1.0 max body + fillet
     "D_SMA": 2.20, "D_SMB": 2.45, "D_SOD-123": 1.10, "D_SOD-523": 0.75,
     "SOT-23": 1.30, "SOT-23-5": 1.45, "SOT-23-6": 1.10,
     "SOT-363_SC-70-6": 1.10,                       # TI DCK, SCES424O section 11
@@ -85,7 +86,7 @@ HEIGHT = {
     "LED_0603_1608Metric": 0.80, "LED_0805_2012Metric": 1.10,   # TYPICAL chip-LED maxima, not one part's drawing
     # JST: top entry bodies, and side entry (cadkit.pcb carries the drawings' numbers)
     "JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical": 7.0,
-    "JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical": 7.0,
+    "JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical": 7.0, "JST_XH_B6B-XH-A_1x06_P2.50mm_Vertical": 7.0,
     "JST_PH_B6B-PH-K_1x06_P2.00mm_Vertical": 6.0,
     "JST_PH_B8B-PH-K_1x08_P2.00mm_Vertical": 6.0,
     "JST_PH_S4B-PH-SM4-TB_1x04-1MP_P2.00mm_Horizontal": 5.5,   # cadkit.pcb PH_SIDE_H
@@ -127,9 +128,10 @@ TAIL = {
     "R_0402_1005Metric": 0.0, "C_0402_1005Metric": 0.0, "C_0805_2012Metric": 0.0,
     "R_0603_1608Metric": 0.0, "LED_0603_1608Metric": 0.0, "LED_0805_2012Metric": 0.0,
     "C_0603_1608Metric": 0.0, "R_0805_2012Metric": 0.0,
-    "JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical": 3.4, "JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical": 3.4,   # cadkit.pcb XH_POST_TAIL
+    "JST_XH_B2B-XH-A_1x02_P2.50mm_Vertical": 3.4, "JST_XH_B4B-XH-A_1x04_P2.50mm_Vertical": 3.4, "JST_XH_B6B-XH-A_1x06_P2.50mm_Vertical": 3.4,   # cadkit.pcb XH_POST_TAIL
     "TestPoint_Pad_D1.5mm": 0.0, "TestPoint_Pad_D1.0mm": 0.0,
     "C_1206_3216Metric": 0.0, "Fuse_1206_3216Metric": 0.0,
+    "Fuse_0805_2012Metric": 0.0,
     "XINGLIGHT_XL-5050RGBW": 0.0,
     "HTSSOP-20-1EP_4.4x6.5mm_P0.65mm_EP3.4x6.5mm_Mask2.75x3.43mm": 0.0,
     "Texas_RNX0012_VQFN-HR-12_2x3mm_P0.5mm": 0.0, "L_Sunlord_SWPA4030S": 0.0,
