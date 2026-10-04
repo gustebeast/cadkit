@@ -1115,8 +1115,14 @@ def add_missing_vias(board, eps_mm=0.05, via_d=0.6, via_drill=0.3, clr=0.14):
                 xj, yj, lj, tj = items[j]
                 if li == lj or math.hypot(xi - xj, yi - yj) > eps:
                     continue
-                # already carried across? then there is nothing missing
-                if any(onet == net and math.hypot(xi - vx2, yi - vy2) <= vr
+                # already carried across? then there is nothing missing.
+                # ⚠ "ACROSS" INCLUDES A VIA THE TWO TRACKS BOTH COVER (pi_cap, 2026-10-04).
+                # Two declared 2.2 mm patches, one per layer, shared an endpoint with eight
+                # declared vias under them, the nearest 0.55 mm from that point: the test
+                # was "a via exactly here", so a ninth was dropped in -- and the tidy pass
+                # then removed four of the DECLARED ones for crowding it.
+                _reach = min(ti.GetWidth(), tj.GetWidth()) / 2.0
+                if any(onet == net and math.hypot(xi - vx2, yi - vy2) <= vr + _reach
                        for vx2, vy2, vr, onet in vias):
                     continue
                 if not clear(xi, yi, net):
@@ -1279,8 +1285,10 @@ def tidy_router_vias(board, notes, min_gap_mm=0.25):
     # whatever they look like to a dangling test.
     # NOT "keep" -- the merge loop below binds that name to the surviving VIA, and this
     # closure then tested membership in a PCB_VIA.
+    # (and so is one laid BEFORE routing, in "vias": a declared via field lost four of its
+    # eight to this pass, each "crowding" a router via that had been dropped beside it)
     declared_xy = {(round(rv[1], 3), round(rv[2], 3))
-                   for rv in notes.get("repair_vias", [])}
+                   for rv in list(notes.get("repair_vias", [])) + list(notes.get("vias", []))}
 
     def _declared(v):
         p = v.GetPosition()
@@ -1931,10 +1939,19 @@ def link_close_gaps(board, outline, max_mm=5.0, width=0.25, clr=0.2,
                     def _thru(q):
                         return (isinstance(q, pcbnew.PAD) and q.IsOnLayer(pcbnew.F_Cu)
                                 and q.IsOnLayer(pcbnew.B_Cu))
+                    # ⚠ AND AN SMD PAD'S LAYER IS THE ONE IT IS ON, NOT GetLayer(). A pad on
+                    # a back-side part answered F.Cu, so two back-side capacitors were
+                    # "joined" to their rail with F.Cu copper ending over pads on the other
+                    # face: six dangling tracks, net still open, and the closing step then
+                    # drilled into a pad to finish what this had started (pi_cap).
+                    def _lay(q):
+                        if isinstance(q, pcbnew.PAD) and not _thru(q):
+                            return pcbnew.B_Cu if q.IsOnLayer(pcbnew.B_Cu) else pcbnew.F_Cu
+                        return q.GetLayer()
                     if _thru(a) and not _thru(b):
-                        lay = b.GetLayer()
-                    elif _thru(b) or a.GetLayer() == b.GetLayer():
-                        lay = a.GetLayer()
+                        lay = _lay(b)
+                    elif _thru(b) or _lay(a) == _lay(b):
+                        lay = _lay(a)
                     else:
                         continue
                     for q0, q1 in zip(way, way[1:]):
