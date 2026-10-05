@@ -181,6 +181,16 @@ def required_width_mm(amps, layer, q):
     return area_mil2 / (oz * 1.378) * 0.0254
 
 
+def _layout():
+    """pcbflow's layout module, for the geometry it already owns (imported late: it is
+    heavy, and most rules never need it)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+    import layout
+    return layout
+
+
 class _Net:
     """One net's copper as a graph: nodes are (layer, x, y) points and pads; an edge
     carries the WIDTH of what joins its ends. A pour joins everything it touches on its
@@ -196,12 +206,13 @@ class _Net:
         self.q = ctx.q
         layers = [b.GetLayerName(l) for l in b.GetEnabledLayers().CuStack()]
         R = lambda v: (round(MM(v.x), 3), round(MM(v.y), 3))        # noqa: E731
-        segs = []
+        segs, vias_at = [], {}
         for t in b.GetTracks():
             if t.GetNetname() != net:
                 continue
             if t.GetClass() == "PCB_VIA":
                 p = R(t.GetPosition())
+                vias_at[p] = t
                 # a via's barrel as an equivalent track width: its circumference, derated
                 # for plating (~25 um) against 35 um foil. Parallel vias are NOT summed.
                 w = math.pi * MM(t.GetDrillValue()) * 25.0 / 35.0
@@ -249,9 +260,19 @@ class _Net:
                 zk = ("POUR", L, len(self.pours))
                 self.pours.append(zk)
                 for n in list(self.g):
-                    if n[0] == L and poly.Contains(pcbnew.VECTOR2I(
+                    if n[0] != L:
+                        continue
+                    if poly.Contains(pcbnew.VECTOR2I(
                             pcbnew.FromMM(n[1]), pcbnew.FromMM(n[2]))):
                         self._edge(zk, n, self.POUR, "pour", L, (n[1], n[2]))
+                    elif (n[1], n[2]) in vias_at:
+                        # a via whose CENTRE a neighbour's antipad has voided can still
+                        # have its ring in the pour: joined, by the arc that touches
+                        v = vias_at[(n[1], n[2])]
+                        f = _layout().via_plane_contact(v, poly)
+                        if f > 0:
+                            ring = math.pi * (MM(v.GetDrillValue()) + MM(v.GetWidth(pcbnew.F_Cu))) / 2.0
+                            self._edge(zk, n, f * ring, "pour contact", L, (n[1], n[2]))
 
     def _edge(self, a, c, w, kind, layer, at, ohm=0.0):
         self.g[a].append((c, w, kind, layer, at))
