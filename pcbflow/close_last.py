@@ -87,6 +87,46 @@ def _free_end(board, net, layer, pos, target):
     return layer, (pcbnew.ToMM(int(best[0] * eps)), pcbnew.ToMM(int(best[1] * eps)))
 
 
+def _via_starts(board, net, pos, layers):
+    """Every (layer, point) the net's copper joined to `pos` offers through a via of its own.
+
+    ⚠ AN END THAT ALREADY HAS ITS ESCAPE VIA WAS SEARCHED FROM THE WRONG LAYER
+    (motor_ctrl PG_5V, 2026-10-04). Both ends of that net were declared escapes: a QFN pin
+    with a 0.15 mm track to a via 1 mm away, and a regulator pin walled in on the front by
+    its own thermal pad and the input copper, with a via beside it. The search started on
+    F.Cu at each -- the one layer with no way out, which is why the vias were drawn -- and
+    said "no path" for two vias with open board between them on both other layers.
+    So: walk the net's copper from `pos` across layers, and offer each via it reaches as a
+    start on every routable layer.
+    """
+    eps = pcbnew.FromMM(0.005)
+    key = lambda p: (round(p.x / eps), round(p.y / eps))
+    segs = [t for t in board.GetTracks()
+            if t.GetClass() != "PCB_VIA" and t.GetNetname() == net]
+    vias = {key(t.GetPosition()): t for t in board.GetTracks()
+            if t.GetClass() == "PCB_VIA" and t.GetNetname() == net}
+    here = (round(pcbnew.FromMM(pos[0]) / eps), round(pcbnew.FromMM(pos[1]) / eps))
+    seen, edge, used = {here}, [here], set()
+    while edge:
+        k = edge.pop()
+        for i, t in enumerate(segs):
+            if i in used:
+                continue
+            a, b = key(t.GetStart()), key(t.GetEnd())
+            if k in (a, b):
+                used.add(i)
+                for q in (a, b):
+                    if q not in seen:
+                        seen.add(q)
+                        edge.append(q)
+    out = []
+    for k in seen:
+        if k in vias:
+            c = vias[k].GetPosition()
+            out += [(L, (pcbnew.ToMM(c.x), pcbnew.ToMM(c.y))) for L in layers]
+    return out
+
+
 def _pad_layer(board, net, layer, pos):
     """The layer an SMD pad at `pos` is really on (a through-hole pad keeps `layer`).
 
@@ -141,8 +181,21 @@ def main(stem):
         # pitch: 0.1 + 0.127 + 0.106 = 0.333 against the 0.3 to its neighbour's edge, so
         # the START cell is blocked and the answer is "no path" for a pin with a clear
         # run straight out. A 0.05 mm cell costs nine times the cells and 0.035 of pad.
+        # From any via the end's copper already reaches, inner layers first, and from the
+        # end as DRC named it last: a via was drawn because the pin's own layer is shut,
+        # so the search from the pin is the one most likely to spend its time failing.
+        # The fine grid is for a pin in a 0.4 mm row and is tried on that pairing alone --
+        # sixteen pairings at nine times the cells was a quarter of an hour of "no path".
+        pref = {L: i for i, L in enumerate(("In2.Cu", "B.Cu", "F.Cu"))}
+        via_a = sorted(_via_starts(board, net, pa, layers), key=lambda c: pref.get(c[0], 9))
+        via_b = sorted(_via_starts(board, net, pb, layers), key=lambda c: pref.get(c[0], 9))
+        named = ((la, pa), (lb, pb))
+        tries = ([(x, y, RS.MAZE_STEP) for x in via_a for y in via_b]
+                 + [(x, named[1], RS.MAZE_STEP) for x in via_a]
+                 + [(named[0], y, RS.MAZE_STEP) for y in via_b]
+                 + [(named[0], named[1], RS.MAZE_STEP), (named[0], named[1], 0.05)])
         res = None
-        for step in (RS.MAZE_STEP, 0.05):
+        for (la, pa), (lb, pb), step in tries:
             res = RS.maze3d(model, layers, pa, la, pb, lb, w=WIDTH, step=step, reach=REACH)
             if res is not None:
                 break
