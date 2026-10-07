@@ -467,6 +467,8 @@ def _flatten_refs(board, read):
         edge = _grow([e.GetLeft(), e.GetTop(), e.GetRight(), e.GetBottom()], -MM(EDGE_CLR))
         was = (r.GetTextAngleDegrees(), r.IsKeepUpright(), r.GetPosition())
         home = r.GetPosition()
+        stood = _box(r)                   # what it covers as it stands
+        mid = r.GetBoundingBox().GetCenter()
         r.SetKeepUpright(False)
         r.SetTextAngleDegrees(read)
         r.SetPosition(pcbnew.VECTOR2I(0, 0))
@@ -485,6 +487,18 @@ def _flatten_refs(board, read):
                     best = (d2, x, y)
         if best is not None:
             r.SetPosition(pcbnew.VECTOR2I(int(best[1]), int(best[2])))
+            continue
+        # No CLEAR site -- but the layout may have stood it on its own pad, or against a
+        # neighbour, to begin with. Laid flat about its own middle, if it touches nothing
+        # it was not already touching and stays on the board, it is no worse placed than
+        # it was and reads the right way.
+        c0 = pcbnew.VECTOR2I(int((b[0] + b[2]) // 2), int((b[1] + b[3]) // 2))
+        x, y = mid.x - c0.x, mid.y - c0.y
+        box = [b[0] + x, b[1] + y, b[2] + x, b[3] + y]
+        if (box[0] >= edge[0] and box[1] >= edge[1] and box[2] <= edge[2]
+                and box[3] <= edge[3]
+                and all(_hit(stood, o) for o in rects if _hit(box, o))):
+            r.SetPosition(pcbnew.VECTOR2I(int(x), int(y)))
             continue
         # no room to lie flat: where it was, on the quarter turn the fab would have
         # printed anyway (never the half turn, never the other quarter)
