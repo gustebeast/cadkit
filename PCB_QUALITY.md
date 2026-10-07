@@ -678,8 +678,9 @@ connector's courtyard, on the connector's own face. A text is **a way's word** w
 contact nearest it is that way and the text names that way's net: the net's own name, the
 word the board gave it (`silk_labels`, `silk_short`), or a contraction of either — the
 word's letters and digits, in order, inside the name's (`G` for GND, `24` for +24V, `H`
-for CAN_A_H). A board's name or a test pad's label lying beside a contact is therefore not
-a word for it. A **way-1 mark** is the word at way 1, a bare number equal to the lowest way
+for CAN_A_H). A board's name lying beside a contact is therefore not a word for it, and
+neither is a test pad's label: ink whose nearest pad on the board is a `TP`'s names that
+pad. A **way-1 mark** is the word at way 1, a bare number equal to the lowest way
 against that contact, or a dot there — and for the two that name nothing, only if no other
 connector's body is nearer. A **pinout block** is a text of several lines whose first line
 is the designator and whose other lines carry every way's number. A footprint's own outline

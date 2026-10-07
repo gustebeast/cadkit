@@ -1960,6 +1960,17 @@ def connector_labels(ctx):
                 best = (g, r, min(ws, key=lambda k: math.dist(centre, ws[k])))
         return best[1:] if best else (None, None)
 
+    # a test pad's label is the test pad's: ink whose nearest pad on the whole board is a
+    # TP's names that pad, however close a connector's contact on the same net is
+    probes = [_xy(q) for r, f in ctx.fps.items() if _prefix(r) == "TP" for q in f.Pads()]
+
+    def probe_label(centre):
+        if not probes or not allpads:
+            return False
+        d = min(math.dist(centre, q) for q in probes)
+        return d <= min(math.dist(centre, q) for q in allpads)
+
+    allpads = [xy for _r, (_f, ws, _b) in conns.items() for xy in ws.values()]
     tally = collections.Counter()
     for ref in sorted(conns, key=_nat):
         fp, ways, _body = conns[ref]
@@ -2003,7 +2014,7 @@ def connector_labels(ctx):
         for s, c, box in mine["texts"]:
             if "\n" in s:
                 continue
-            if _box_gap(box, _body) > LABEL_REACH:
+            if _box_gap(box, _body) > LABEL_REACH or probe_label(c):
                 continue
             k = min(ways, key=lambda n: math.dist(c, ways[n]))
             word = token.sub("", s).strip()         # "J1 GND": the designator rides on a word
