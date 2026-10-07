@@ -433,6 +433,18 @@ def _flatten_refs(board, read):
             r.SetKeepUpright(False)
             r.SetTextAngleDegrees(read)
             continue
+        if abs(abs(drawn - read) - 180.0) < 0.5:
+            # a HALF turn: the same box, the other way up. Turned about the box's own
+            # centre it covers exactly what it covered, so there is nothing to search
+            # for and nothing new it can touch.
+            was_c = r.GetBoundingBox().GetCenter()
+            r.SetKeepUpright(False)
+            r.SetTextAngleDegrees(read)
+            now_c = r.GetBoundingBox().GetCenter()
+            q = r.GetPosition()
+            r.SetPosition(pcbnew.VECTOR2I(int(q.x + was_c.x - now_c.x),
+                                          int(q.y + was_c.y - now_c.y)))
+            continue
         rects = []
         for o in board.GetFootprints():
             for pad in o.Pads():
