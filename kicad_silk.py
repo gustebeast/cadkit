@@ -451,7 +451,10 @@ def _flatten_refs(board, read):
                 if pad.IsOnLayer(cu) or pad.GetAttribute() in (pcbnew.PAD_ATTRIB_PTH,
                                                                pcbnew.PAD_ATTRIB_NPTH):
                     rects.append(_grow(_box(pad), MM(PAD_CLR)))
-            if o.IsFlipped() == back:
+            # ...and every OTHER part's body. Not its own: a designator laid inside its
+            # own part's courtyard (a connector's, between its rows) was put there by the
+            # layout and prints; what it must not do is land under a neighbour.
+            if o.IsFlipped() == back and o.GetReference() != fp.GetReference():
                 cy = o.GetCourtyard(pcbnew.B_CrtYd if back else pcbnew.F_CrtYd)
                 if cy.OutlineCount():
                     b = cy.BBox()
