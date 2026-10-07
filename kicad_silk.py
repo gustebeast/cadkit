@@ -240,7 +240,8 @@ REGISTER_UNDER = 8.0       # ...and this far, for a block stepping along the row
 
 
 def _rows(board, back):
-    """(ref, pad box, 'x' or 'y') for each connector's pads present on this side."""
+    """(ref, pad box, 'x' or 'y', body) for each connector's pads present on this side;
+    `body` is its courtyard where the part itself is on this side, else None."""
     cu = pcbnew.B_Cu if back else pcbnew.F_Cu
     out = []
     for fp in board.GetFootprints():
@@ -252,18 +253,26 @@ def _rows(board, back):
             continue
         b = [min(q[0] for q in bs), min(q[1] for q in bs),
              max(q[2] for q in bs), max(q[3] for q in bs)]
-        out.append((ref, b, "x" if b[2] - b[0] >= b[3] - b[1] else "y"))
+        body = None
+        if fp.IsFlipped() == back:
+            c = _rect(fp.GetCourtyard(pcbnew.B_CrtYd if back else pcbnew.F_CrtYd).BBox())
+            if c[2] > c[0] and c[3] > c[1]:
+                body = c
+        out.append((ref, b, "x" if b[2] - b[0] >= b[3] - b[1] else "y", body))
     return out
 
 
 def _misread(r, ang, rows, own=None):
     """The connector whose pins a block at `r`, reading at `ang`, would be read against,
-    or None. With `own`, ANOTHER connector's pads that close are refused outright: a
-    block there is that connector's to the eye, whatever its head says."""
+    or None. `own` is the block's connector: ANOTHER connector's pads or body that close
+    are refused outright -- a list hard against J3 is J3's to the eye, whatever its head
+    says (J4's went down in the corner beside J3's mounting pad)."""
     steps = "y" if round(ang) % 180 == 0 else "x"       # the way its lines step
-    for ref, b, axis in rows:
+    for ref, b, axis, body in rows:
         g = _gap(r, b)
         if g < MM(REGISTER_NEAR) and (axis == steps or (own and ref != own)):
+            return ref
+        if own and ref != own and body and _gap(r, body) < MM(REGISTER_NEAR):
             return ref
         # ...and further off than that while it is still UNDER the row: lines stepping
         # along the pins, across the pins' own span, are matched to them by eye from a
@@ -285,7 +294,8 @@ def misregistered(board):
         lines = d.GetText().split(chr(10))
         if len(lines) < 3 or not (lines[0].startswith("J") and lines[0][1:].isdigit()):
             continue
-        hit = _misread(_box(d), d.GetTextAngleDegrees(), rows[d.GetLayer() == pcbnew.B_SilkS])
+        hit = _misread(_box(d), d.GetTextAngleDegrees(),
+                       rows[d.GetLayer() == pcbnew.B_SilkS], lines[0])
         if hit:
             out.append((lines[0], hit))
     return out
@@ -894,15 +904,19 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         why = "beside its own pad (%s)" % ref
         # the net's name flat, then the pad's own (shorter) name flat, and only then
         # either of them turned
-        if s.place(label, SIZE_TP, fp.GetPosition(), 5.0, rivals=others):
+        # own=True: NEARER ITS OWN PAD THAN ANY OTHER TEST PAD, at every distance. Inside
+        # the first ring that used not to be asked, and "SWCLK" went down 2.4 mm from the
+        # +3V3 pad and 4.5 mm from its own: a probe is put where the nearest word says.
+        if s.place(label, SIZE_TP, fp.GetPosition(), 5.0, rivals=others, own=True):
             done.append("%s=%s" % (ref, label))
-        elif label != ref and s.place(ref, SIZE_TP, fp.GetPosition(), 5.0, rivals=others):
+        elif label != ref and s.place(ref, SIZE_TP, fp.GetPosition(), 5.0, rivals=others,
+                                      own=True):
             done.append("%s=%s" % (ref, ref))
         elif s.place_legible(label, SIZE_TP, fp.GetPosition(), 5.0, rivals=others,
-                             turn=why):
+                             own=True, turn=why):
             done.append("%s=%s" % (ref, label))
         elif label != ref and s.place_legible(ref, SIZE_TP, fp.GetPosition(), 5.0,
-                                              rivals=others, turn=why):
+                                              rivals=others, own=True, turn=why):
             done.append("%s=%s" % (ref, ref))
         else:
             missed.append(ref)
@@ -936,6 +950,7 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
     #     Before the name and the blocks: a way's word has one place it can be, and the
     #     name can go anywhere. The net's own name first, then the short words.
     wayless, united = [], set()          # united: named in the same label as its word
+    far_worded = set()                   # a numbered word at each tail on the far side
     for fp in fps:
         ref = fp.GetReference()
         if not (ref.startswith("J") and ref[1:].isdigit()):
@@ -1094,7 +1109,7 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
         rows = {b: _rows(board, b) for b in (False, True)}
 
         def clear(back, strict, ref=ref, rows=rows):
-            return lambda r, ang: not _misread(r, ang, rows[back], ref if strict else None)
+            return lambda r, ang: not _misread(r, ang, rows[back], ref)
         if ref in wayless:
             # no room for a word per way: the block on the connector's own side is the
             # next best thing to read while plugging, at the legible size or not at all.
@@ -1127,6 +1142,7 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
                 if f not in forms:
                     forms.append(f)
             if _ways(sides[far], fp, tails, forms):
+                far_worded.add(ref)
                 done.append("%s pinout (%s, a word at each pin)"
                             % (ref, "back" if far else "front"))
                 if not sides[far].place_legible(ref, SIZE_J, fp.GetPosition(), 12.0,
@@ -1151,6 +1167,37 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
                 break
         else:
             missed.append(ref + " pinout")
+
+    # 3b. WHICH TAIL IS WAY 1, ON THE FAR SIDE OF A THROUGH-HOLE CONNECTOR TOO. That face
+    #     is the one in view when a board hangs under what it plugs into (a 2x20 socket
+    #     put on a row late is 5 V on a ground pin), and the one a probe is put to. A
+    #     numbered word at each tail already says it; a block, or nothing, does not.
+    for back in (False, True):
+        rws = {r_: b_ for r_, b_, _a, _c in _rows(board, back)}
+        for fp in fps:
+            ref = fp.GetReference()
+            if ref not in rws or fp.IsFlipped() == back or ref in far_worded:
+                continue
+            cu = pcbnew.B_Cu if back else pcbnew.F_Cu
+            tails = {int(q.GetNumber()): q for q in fp.Pads()
+                     if q.GetNumber().isdigit() and q.IsOnLayer(cu)}
+            if 1 not in tails or len(tails) < 2:
+                continue
+            theirs = [b_ for r_, b_ in rws.items() if r_ != ref]
+
+            def own_row(r, mine=rws[ref], theirs=theirs):
+                g = _gap(r, mine)
+                return all(g + MM(0.3) <= _gap(r, q) for q in theirs)
+            others = [q.GetPosition() for n, q in tails.items() if n != 1]
+            face_ = "back" if back else "front"
+            if sides[back].place("1", SIZE_J, tails[1].GetPosition(), 4.0, rivals=others,
+                                 wider=False, own=True, ok=own_row,
+                                 turn="way 1's mark against its own tail (%s)" % ref):
+                done.append("%s way-1 mark (%s)" % (ref, face_))
+            elif sides[back].dot(tails[1].GetPosition(), 4.0, others):
+                done.append("%s way-1 dot (%s)" % (ref, face_))
+            else:
+                missed.append("%s way-1 mark (%s)" % (ref, face_))
 
     # 4. a designator beside each part, where the board asked for them (`silk_refs`).
     #    LAST, so no designator takes a site a test pad's net or a pinout needed, and
