@@ -1222,12 +1222,14 @@
   }
 
   // ── ray tracing ──────────────────────────────────────────────────────────────────
-  // The top level, and never chosen for you. WHILE ANYTHING MOVES the page draws as
-  // 'shadows + occlusion' does; the moment the view is still, a path tracer takes over:
-  // light that bounces between parts, soft shadows, reflections of the model in its own
-  // glossy parts. A denoised picture is there within a frame or two and sharpens over
-  // the next second or so. It traces what is SHOWN (hide a part and its shadow goes),
-  // not a section cut: with a cut on, the page stays with the drawn picture.
+  // The top level, and never chosen for you. THE DRAWN PICTURE STAYS ON SCREEN, quick
+  // and live, exactly as 'shadows + occlusion' draws it (user, 2026-10-09). Once the view
+  // is still, a path tracer works BEHIND it, out of sight: light that bounces between
+  // parts, soft shadows, reflections of the model in its own glossy parts. Only when it
+  // has a whole picture worth showing is that swapped in, and it goes on sharpening
+  // there. Any movement puts the drawn picture straight back. It traces what is SHOWN
+  // (hide a part and its shadow goes), not a section cut: with a cut on, the page stays
+  // with the drawn picture.
   //
   // The browser has no access to a card's ray-tracing hardware, so the tracer walks its
   // own tree of the model's triangles in a shader. BUILDING that tree is the slow part
@@ -1235,7 +1237,8 @@
   // Everything after is a REFIT of it: a hidden part is not removed, it is shrunk to a
   // point, and a part the rig moves is moved.
   const RT_SAMPLES = 256, RT_STILL = 3;            // frames of stillness before it starts
-  const RT_DENOISE = 48;                           // samples over which the denoiser fades out
+  const RT_SHOW = 64;                              // samples before the traced picture is shown
+  const RT_DENOISE = 160;                          // samples by which the denoiser has faded out
   const rt = { lib: null, loading: false, failed: false, tracer: null, scene: null, items: [],
                made: [], dn: null, dirty: true, still: 0, reset: true, cam: new THREE.Matrix4(),
                size: '', ms: 0, per: 1, last: 0, note: '', built: 0, ready: false, preparing: false,
@@ -1298,18 +1301,17 @@
     t.fadeDuration = 0;
     t.minSamples = 1;
     t.renderDelay = 0;
-    // THE FIRST SAMPLES ARE SHOWN DENOISED: a picture of a few samples is mostly noise,
-    // and smoothing it reads as the finished one arriving early. The smoothing is
-    // withdrawn as real samples replace it, so it never costs the converged picture
-    // its detail.
+    // THE PICTURE IS FIRST SHOWN LIGHTLY DENOISED: at RT_SHOW samples a little grain is
+    // left, and smoothing it reads as the finished picture. The smoothing is withdrawn
+    // as real samples replace it, so it never costs the converged picture its detail.
     rt.dn = new FullScreenQuad(new L.DenoiseMaterial());
     t.renderToCanvasCallback = (target, r, quad) => {
-      const k = 1 - Math.min(t.samples / RT_DENOISE, 1), ac = r.autoClear;
+      const k = 1 - Math.min(Math.max(t.samples - RT_SHOW, 0) / (RT_DENOISE - RT_SHOW), 1), ac = r.autoClear;
       r.autoClear = false;
       if (k > 0) {
         const m = rt.dn.material;
         m.map = target.texture; m.opacity = quad.material.opacity;
-        m.sigma = 1.5 + 4 * k; m.threshold = 0.02 + 0.1 * k; m.kSigma = 1;
+        m.sigma = 1.5 + 2.5 * k; m.threshold = 0.02 + 0.05 * k; m.kSigma = 1;
         rt.dn.render(r);
       } else quad.render(r);
       r.autoClear = ac;
@@ -1402,12 +1404,18 @@
     if (++rt.still < RT_STILL) return false;
     if (rt.dirty) rtBuild();
     if (rt.reset) { rt.tracer.updateCamera(); rt.reset = false; rt.last = 0; }
-    if (rt.tracer.samples >= RT_SAMPLES) return true;          // done: the picture stays
+    const t = rt.tracer;
+    if (t.samples >= RT_SAMPLES) return true;                  // done: the picture stays
     // SEVERAL SAMPLES A FRAME, as many as this card does inside one: judged on the time
     // from one traced frame to the next (the calls return before the card has done the
-    // work). A card that cannot do one in a frame gets it in tiles instead.
-    for (let i = 0; i < rt.per; i++) rt.tracer.renderSample();
-    rtOverlays();
+    // work). A card that cannot do one in a frame gets it in tiles instead. Until
+    // RT_SHOW of them are in, they go to a buffer and the drawn picture is drawn as usual.
+    for (let i = 0; i < rt.per; i++) {
+      t.renderToCanvas = t.samples >= RT_SHOW - 1;
+      t.renderSample();
+    }
+    const shown = t.samples >= RT_SHOW;
+    if (shown) rtOverlays();
     const now = performance.now();
     if (rt.last && rt.tracer.samples > 2) {
       rt.ms = rt.ms ? 0.8 * rt.ms + 0.2 * (now - rt.last) : now - rt.last;
@@ -1417,7 +1425,7 @@
       else if (rt.ms > 34 && tl.x < 4) { tl.set(tl.x + 1, tl.x + 1); rt.ms = 0; }
     }
     rt.last = now;
-    return true;
+    return shown;
   }
   // the selection tint and the measure marks, over the traced picture
   function rtOverlays() {
@@ -1613,7 +1621,9 @@
         ? 'ray traced · ' + Math.min(Math.floor(rt.tracer.samples), RT_SAMPLES) + ' of ' + RT_SAMPLES + ' samples'
         : Math.round(fps) + ' fps · ' + renderer.info.render.calls + ' draws · ' +
           Math.round(renderer.info.render.triangles / 1000) + 'k tris · ' + LIGHT[quality] +
-          (quality === 3 ? rt.failed ? ' (unavailable)' : sec.on ? ' (not with a section cut)' : ' (when still)' : '');
+          (quality !== 3 ? '' : rt.failed ? ' (unavailable)' : sec.on ? ' (not with a section cut)'
+           : !rt.ready ? ' (preparing)'
+           : rt.still >= RT_STILL ? ' (' + Math.round(100 * Math.min(rt.tracer.samples / RT_SHOW, 1)) + '%)' : ' (when still)');
       // a second spent tracing says nothing about how fast this device DRAWS
       if (stalled || traced) stalled = false; else govern(fps, now);
       fpsT = now; fpsN = 0;

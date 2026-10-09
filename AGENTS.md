@@ -129,12 +129,11 @@ Measure reads the CAD kernel's own numbers — distance, angle, radius, between 
 edges, axes and faces — not triangles, so what it says is the model's figure. `l` steps
 the lighting (plain / shadows / shadows + occlusion / ray traced). The first three are
 drawn every frame, and the page steps down by itself on a device that cannot hold
-60 fps. RAY TRACED is never chosen for you: while anything moves the page draws as
-before, and the moment the view is still a path tracer takes over (bounced light, soft
-shadows, reflections), denoised at first and sharp within a second or two on a strong
-graphics card. It prepares each model once, in the background, and pauses while a
-section cut is on. A browser cannot use a card's ray-tracing hardware, so this is not
-real time while moving. `k` shows the parts as printed, if the project names its
+60 fps. RAY TRACED is never chosen for you: the drawn picture stays on screen, quick
+and live, and once the view is still a path tracer works behind it (bounced light, soft
+shadows, reflections). Its picture is swapped in only when it is whole -- about a
+second on a strong graphics card -- and any movement puts the drawn one straight back.
+It prepares each model once, in the background, and pauses while a section cut is on. `k` shows the parts as printed, if the project names its
 filaments.
 
 **What a project can hand it** (keywords of `show()` / `cadkit.web.export()`):
