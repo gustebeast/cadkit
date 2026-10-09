@@ -82,6 +82,7 @@
                 padding: 1px 6px; border-radius: 5px; font-size: 13px;
                 font-variant-numeric: tabular-nums; display: none; }
     #status { position: fixed; right: 16px; top: 52px; font-size: 11px; opacity: .55;
+              max-width: 44vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
               pointer-events: none; text-align: right; }
   </style>
   <script type="importmap">
@@ -1456,9 +1457,12 @@
          stamp.own ? stamp.own + ' kept as built here' : '',
          stamp.cache_age_min != null
            ? `the rest from build${stamp.build != null ? ' #' + stamp.build : ''}, ${Math.round(stamp.cache_age_min)} min old` : '',
-         stamp.drift ? 'NOT THE SAME TREE: ' + stamp.drift : '']
+         stamp.drift ? 'made from older code than that build (hover)' : '']
         .filter(Boolean).join(' · ')
       : '';
+    // the whole story of a mismatch is long: it is the line's tooltip, not the line
+    $('status').title = stamp && stamp.scratch && stamp.drift ? stamp.drift : '';
+    $('status').style.pointerEvents = $('status').title ? 'auto' : 'none';
     const hiddenNames = new Set(hiddenParts().map(p => p.name));
     const wasMode = mode;
     const gltf = await new GLTFLoader().loadAsync('assembly.glb?v=' + M.key);
