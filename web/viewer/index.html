@@ -555,7 +555,7 @@
   }
   function disposeModel() {
     if (!M.root) return;
-    clearSelection(); clearMeasure(); rtDrop();
+    clearSelection(); clearMeasure(); rtDrop(); M.span = 0;
     scene.remove(M.root);
     for (const b of M.batches) { b.pickGeo.disposeBoundsTree(); b.pickGeo.dispose(); b.drawGeo.dispose(); }
     for (const p of M.list) if (p.mesh) { p.mesh.geometry.disposeBoundsTree(); p.mesh.geometry.dispose(); }
@@ -643,6 +643,29 @@
     }
     return null;
   }
+
+  // ── zooming and panning at the pace of what is under the cursor ──────────────────
+  // The controls zoom by a share of the distance to their TARGET and pan in proportion
+  // to it. Zoom far in and the camera is almost on the target: each notch then moves a
+  // share of almost nothing, and the view crawls. So before a zoom or a drag the target
+  // is slid along the line of sight (which changes nothing on screen) to the depth of
+  // the part under the cursor. Over empty space there is no such depth, and the target
+  // is only kept from closing on the camera: never nearer than a share of the model's
+  // own size, which is the pace of flying through it.
+  function retarget(e, always) {
+    const hit = pickAt(e.clientX, e.clientY);
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    const now = controls.target.clone().sub(camera.position).dot(dir);
+    let depth = hit ? hit.world.sub(camera.position).dot(dir) : now;
+    if (!hit) {
+      if (!M.span) M.span = new THREE.Box3().setFromObject(M.parts).getSize(new THREE.Vector3()).length();
+      depth = Math.max(now, 0.1 * M.span);
+      if (depth === now) return;
+    } else if (depth <= camera.near || (!always && depth < 2 * now && depth > 0.5 * now)) return;
+    controls.target.copy(camera.position).addScaledVector(dir, depth);
+  }
+  renderer.domElement.addEventListener('wheel', e => retarget(e, true), { capture: true, passive: true });
+  renderer.domElement.addEventListener('pointerdown', e => retarget(e, false), { capture: true });
 
   // ── selection ────────────────────────────────────────────────────────────────────
   let selection = [];

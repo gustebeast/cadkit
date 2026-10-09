@@ -13,7 +13,7 @@ had. (metalness, roughness), as glTF means them.
 
 FINISHES = {
     "steel":     (1.0, 0.34),     # screws, washers, rods, springs: bright but not mirror
-    "polished":  (1.0, 0.14),     # bearing races, plated magnets, strings
+    "polished":  (1.0, 0.26),     # bearing races, plated magnets, strings: ground, not mirror
     "brass":     (1.0, 0.36),     # heat-set inserts
     "gold":      (1.0, 0.24),     # contact plating
     "aluminium": (1.0, 0.46),     # anodised or bead-blasted
