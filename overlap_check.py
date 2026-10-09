@@ -267,6 +267,10 @@ def _scan(components, jobs, min_vol=None, cache=None):
         cands = [(i, j) for i, j in cands if i not in hollow and j not in hollow]
         print(f"  {n_all - len(cands)} pair(s) not scanned: {len(hollow)} part(s) are "
               f"faces only, with no volume to overlap")
+        # NAMED, because this is also what a part that LOST its solid looks like (a
+        # boolean that returned a shell): such a part leaves the gate without a word
+        # unless the list is read. Anything here that is not lettering is a fault.
+        print("    faces only: " + ", ".join(sorted(names[i] for i in hollow)))
 
     known, keys, todo = {}, {}, cands
     if cache:
