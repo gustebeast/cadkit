@@ -1239,7 +1239,7 @@
   // finished thing and is there in a third of a second, then the full one over it.
   const RT_FIRST = 24, RT_SAMPLES = 128, RT_STILL = 3;   // frames of stillness before it asks
   const rt = { ok: null, still: 0, cam: new THREE.Matrix4(), size: '', want: 0, shown: false,
-               asking: 0, ms: 0, n: 0, quad: null, error: '' };
+               asking: 0, ms: 0, n: 0, quad: null, error: '', prev: new THREE.Matrix4() };
   async function rtLoad() {                        // is there a tracer behind this page?
     if (rt.ok !== null) return;
     const r = await fetchJSON('trace.json?t=' + Date.now());
@@ -1255,7 +1255,7 @@
                    sun: KEY_DIR.toArray(), sun_strength: key.intensity,
                    bg: scene.background.clone().convertLinearToSRGB().toArray() };
     const t0 = performance.now();
-    rt.asking++;
+    rt.asking++; fpsLine();
     try {
       const r = await fetch('trace', { method: 'POST', headers: { 'Content-Type': 'application/json' },
                                        body: JSON.stringify(view) });
@@ -1276,14 +1276,33 @@
         }
       } else if (r.status !== 204) { rt.error = r.statusText || 'failed'; console.warn('ray tracing:', rt.error); }
     } catch (e) { rt.error = 'failed'; console.warn(e); }
-    rt.asking--;
+    rt.asking--; fpsLine();
+  }
+  // THE VIEW GLIDES TO A STOP after a drag, ever more slowly, and takes a second or two
+  // to stand exactly still, long after the eye has it as stopped. Once the glide is
+  // down to a fraction of a pixel a frame, what is left of it is given in one step.
+  function rtSettle() {
+    const a = camera.matrixWorld.elements, b = rt.prev.elements, far = camera.position.distanceTo(controls.target) || 1;
+    let turn = 0, move = 0;
+    for (let i = 0; i < 11; i++) turn = Math.max(turn, Math.abs(a[i] - b[i]));
+    for (let i = 12; i < 15; i++) move = Math.max(move, Math.abs(a[i] - b[i]));
+    rt.prev.copy(camera.matrixWorld);
+    const m = Math.max(turn, move / far);
+    if (m > 0 && m < 1e-4 && !down) {
+      controls.enableDamping = false; controls.update(); controls.enableDamping = true;
+      camera.updateMatrixWorld();
+      rt.prev.copy(camera.matrixWorld);
+    }
   }
   // true when this frame shows the traced picture (so the drawn one must NOT be drawn over it)
   function rtFrame(changed) {
     if (quality !== 3 || !rt.ok || sec.on || !M.parts) return false;
+    rtSettle();
     const size = innerWidth + 'x' + innerHeight;
     if (changed || size !== rt.size || !rt.cam.equals(camera.matrixWorld)) {
+      const was = rt.shown;
       rt.cam.copy(camera.matrixWorld); rt.size = size; rt.still = 0; rt.shown = false; rt.want++;
+      if (was) fpsLine();
       return false;
     }
     if (++rt.still === RT_STILL) rtAsk();
@@ -1478,17 +1497,21 @@
 
   let last = performance.now(), fpsT = last, fpsN = 0, stalled = false;
   const fpsEl = $('fps');
+  let fpsNow = 0;
+  function fpsLine() {                                  // also said at once when tracing starts or ends
+    fpsEl.textContent = traced || rt.shown
+        ? 'ray traced · ' + rt.n + ' samples in ' + (rt.ms / 1000).toFixed(2) + ' s'
+        : Math.round(fpsNow) + ' fps · ' + renderer.info.render.calls + ' draws · ' +
+          Math.round(renderer.info.render.triangles / 1000) + 'k tris · ' + LIGHT[quality] +
+          (quality !== 3 ? '' : sec.on ? ' (not with a section cut)' : rt.asking ? ' (tracing…)'
+           : rt.error ? ' (' + rt.error + ')' : ' (when still)');
+  }
   function tick(now) {
     if (now - last > 250) stalled = true;               // a hidden tab, a load: not a slow device
     const dt = Math.min((now - last) / 1000, 0.05); last = now;
     if (++fpsN && now - fpsT >= 1000) {
-      const fps = fpsN * 1000 / (now - fpsT);
-      fpsEl.textContent = traced
-        ? 'ray traced · ' + rt.n + ' samples in ' + (rt.ms / 1000).toFixed(2) + ' s'
-        : Math.round(fps) + ' fps · ' + renderer.info.render.calls + ' draws · ' +
-          Math.round(renderer.info.render.triangles / 1000) + 'k tris · ' + LIGHT[quality] +
-          (quality !== 3 ? '' : sec.on ? ' (not with a section cut)' : rt.asking ? ' (tracing…)'
-           : rt.error ? ' (' + rt.error + ')' : ' (when still)');
+      const fps = fpsNow = fpsN * 1000 / (now - fpsT);
+      fpsLine();
       // a second spent tracing says nothing about how fast this device DRAWS
       if (stalled || traced) stalled = false; else govern(fps, now);
       fpsT = now; fpsN = 0;
