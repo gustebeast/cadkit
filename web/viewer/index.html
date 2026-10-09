@@ -1217,6 +1217,8 @@
     }
     lightDirty = true; slowFor = 0;
     if (quality === 3) fetchJSON('trace.json?warm=1');           // have it ready
+    else { rtDrop(); traced = false; }                           // a traced picture belongs to its level
+    fpsLine();                                                   // said now, not at the next second
     $('bLight').title = 'lighting: ' + LIGHT[quality] + (autoQuality ? ' (drops by itself under 60 fps)' : '');
   }
 
@@ -1530,7 +1532,7 @@
   const fpsEl = $('fps');
   let fpsNow = 0;
   function fpsLine() {                                  // also said at once when tracing starts or ends
-    fpsEl.textContent = traced || rt.shown
+    fpsEl.textContent = quality === 3 && (traced || rt.shown)
         ? 'ray traced · ' + rt.n + ' samples in ' + (rt.ms / 1000).toFixed(2) + ' s'
         : Math.round(fpsNow) + ' fps · ' + renderer.info.render.calls + ' draws · ' +
           Math.round(renderer.info.render.triangles / 1000) + 'k tris · ' + LIGHT[quality] +
