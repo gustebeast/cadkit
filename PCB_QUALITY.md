@@ -1110,6 +1110,28 @@ access the bring-up will need.
   copies of which sit inside an assembly is the worst case, not the exception: count the
   disassemblies an update costs.
 
+  **Extended (owner, 2026-10-15): installed, closed up, and hands-free.** Where the
+  product has its own host computer, that host does it all, with every board installed in
+  final form and no cable beyond the product's own wiring. For EVERY board with firmware,
+  one at a time or all together, the host must be able to (1) put the FIRST firmware on a
+  blank chip, (2) apply routine updates, and (3) recover a board from bad firmware --
+  each without a hand on the board: the host enters the loader itself (a line it drives,
+  a power switch it controls, a resident updater), never a button, strap or tweezers. A
+  board already flashed may act as the bridge to the next (a node on a bus is loaded
+  through its neighbour or its controller). Name in the generator, per part, which of the
+  three paths reaches it and what the host toggles to enter each.
+  - **Recovery is designed, not hoped for.** A resident updater is write-protected, the
+    application's first page is written LAST so an interrupted write leaves the updater in
+    charge, and an updater reflash is allowed only with guard rails (proved on one board,
+    then one at a time).
+  - **Nodes on a shared bus**: a blank chip's ROM loader answers on its default address,
+    so the host must be able to power ONE blank node at a time (a switched supply per node
+    or per branch), and assigns identities by position at every power-up.
+  - **Only two failures may need a probe**: a broken resident updater on a bus node, and
+    dead hardware. That probe lands on clip-on spring-pin pads (**M9**) -- no soldering.
+  - **No hand-made USB leads.** Every USB link is a real USB connector at both ends; a
+    USB pigtail crimped into a generic housing does not count.
+
 ---
 
 ## Adding a learning
