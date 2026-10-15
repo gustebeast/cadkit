@@ -1095,42 +1095,36 @@ access the bring-up will need.
   been looked at: same value and package at different ratings or tolerances collapse to
   the stricter one, and an odd value next to a common one (120 nF beside 100 nF) is
   questioned.
-- **M43 — A host computer and a USB cable are all it takes.** (owner's rule, 2026-10-12)
-  Every board either needs no firmware and works as it arrives, or takes its FIRST
-  firmware and every later update over USB from an ordinary computer: no debug probe, no
-  soldered tails, no jig, no pad to bridge. For each programmable part, name in the
-  generator (a) the USB connector the cable goes into and the path from it to the part,
-  (b) the loader that answers on that path with the part BLANK -- the maker's ROM loader,
-  with the manual page that says which pins it uses -- and (c) how the loader is entered
-  by hand on a closed-up board: a button, or a strap the cable itself sets; not tweezers
-  and not a bare pad. A part whose ROM loader cannot be reached over USB (a high-speed-only
-  port the loader does not serve, a part with no USB at all, a node on a bus) gets a USB
-  bridge on the board that can load it, or is changed for one that can. Debug pads (**M9**)
-  are still fitted, for debugging; they are not the way firmware gets in. A board many
-  copies of which sit inside an assembly is the worst case, not the exception: count the
-  disassemblies an update costs.
-
-  **Extended (owner, 2026-10-15): installed, closed up, and hands-free.** Where the
-  product has its own host computer, that host does it all, with every board installed in
-  final form and no cable beyond the product's own wiring. For EVERY board with firmware,
-  one at a time or all together, the host must be able to (1) put the FIRST firmware on a
-  blank chip, (2) apply routine updates, and (3) recover a board from bad firmware --
-  each without a hand on the board: the host enters the loader itself (a line it drives,
-  a power switch it controls, a resident updater), never a button, strap or tweezers. A
-  board already flashed may act as the bridge to the next (a node on a bus is loaded
-  through its neighbour or its controller). Name in the generator, per part, which of the
-  three paths reaches it and what the host toggles to enter each.
-  - **Recovery is designed, not hoped for.** A resident updater is write-protected, the
-    application's first page is written LAST so an interrupted write leaves the updater in
-    charge, and an updater reflash is allowed only with guard rails (proved on one board,
-    then one at a time).
-  - **Nodes on a shared bus**: a blank chip's ROM loader answers on its default address,
-    so the host must be able to power ONE blank node at a time (a switched supply per node
-    or per branch), and assigns identities by position at every power-up.
-  - **Only two failures may need a probe**: a broken resident updater on a bus node, and
-    dead hardware. That probe lands on clip-on spring-pin pads (**M9**) -- no soldering.
-  - **No hand-made USB leads.** Every USB link is a real USB connector at both ends; a
+- **M43 — A host computer and a USB cable are all it takes.** (owner's rule, 2026-10-12;
+  sharpened 2026-10-15) This is a rule about ONE BOARD. Every board either needs no
+  firmware and works as it arrives, or, over its OWN USB connection from an ordinary host
+  computer, can:
+  1. take its FIRST firmware with the part blank,
+  2. take routine updates, and
+  3. be RECOVERED from bad firmware -- one that crashes, ignores USB, or was cut off
+     mid-write --
+  none of the three relying on the firmware already on the part being good. For each
+  programmable part, name in the generator (a) the USB connector and the path from it to
+  the part, (b) the loader that answers on that path with the part blank -- the maker's ROM
+  loader, with the manual page that names its pins -- and (c) how the HOST enters that
+  loader without the firmware's help and with no hand on the board (for example a
+  USB-serial bridge's DTR/RTS driving BOOT and RESET). Not tweezers, not a bare pad; a
+  button is the weaker fallback, only where the host cannot reach the pins. A part whose
+  ROM loader cannot be reached over USB (a high-speed-only port the loader does not serve,
+  a part with no USB at all) gets a USB bridge on the board that can load it, or is
+  changed for one that can.
+  - **A real USB receptacle on the board and a stock cable.** No hand-made USB leads: a
     USB pigtail crimped into a generic housing does not count.
+  - **A cut-off write must fall back to the ROM loader.** Where the board carries its own
+    loader or updater, write the application's first page LAST, so an interrupted update
+    leaves something that still answers.
+  - **Debug pads (M9) stay**, laid out for a plug-on spring-pin clip: for debugging and the
+    last-resort case (dead hardware), never the way firmware normally gets in.
+  - **Exceptions are a project decision, with the reason written down**, and the excepted
+    board must still meet all three cases over the link used instead (for example a bus
+    node too small for USB, loaded over its bus). A board many copies of which sit inside
+    an assembly is the worst case, not the exception: count the disassemblies an update
+    costs.
 
 ---
 
