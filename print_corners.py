@@ -91,6 +91,7 @@ LENGTH_MIN = 1.0         # ...along at least this many beads
 LAYER_EDGE = 10.0        # an edge within this of the layer plane has no corner in a layer (deg)
 SOFT_WIDTH = 1.6         # the two-bead wall: the width check's softer tier
 OPPOSED = -0.17          # two faces oppose when their normals' dot is under this: 80 degrees
+RESIDUE = 0.05           # a whole site narrower than this is a boolean's leftover, not a feature
 SAMPLE = 0.4             # outline sample spacing, in beads
 TESS = 0.05
 
@@ -403,7 +404,8 @@ def _step_sites(V, F, FN, ev, turn, convex, nozzle_d, layer):
 def thin_sites(V, F, FN, ev, turn, convex, nozzle_d=MEASURED_NOZZLE, layer=None, soft=SOFT_WIDTH,
                min_volume=0.0):
     """[site] on a closed mesh ALREADY IN THE BUILD FRAME (+Z up), hard tier first, biggest
-    first: kind POINT (narrower than a bead, a mismatch), SINGLE (a bead up to `soft`, reported
+    first: kind POINT (narrower than a bead, a mismatch), RESIDUE (under 0.05, a boolean's
+    leftover, ranked last), SINGLE (a bead up to `soft`, reported
     for the designer to accept) or STEP (a mismatch); width (the
     narrowest, mm), length, z (low, high), volume (mm3, roughly what is lost), at, hint."""
     layer = nozzle_d / 2.0 if layer is None else layer
@@ -427,10 +429,13 @@ def thin_sites(V, F, FN, ev, turn, convex, nozzle_d=MEASURED_NOZZLE, layer=None,
         p, w = H[k], float(W[k].min())
         lo, hi = p[:, :3].min(axis=0), p[:, :3].max(axis=0)
         kind = "POINT" if hard.any() else "SINGLE"
+        if hard.any() and float(W[k].max()) < RESIDUE:
+            kind = "RESIDUE"
         at = tuple(p[np.argmin(W[k]), :3])
-        out.append(dict(kind=kind, tier=0 if hard.any() else 1, width=w, volume=vol,
+        out.append(dict(kind=kind, tier={"POINT": 0, "SINGLE": 1, "RESIDUE": 2}[kind], width=w, volume=vol,
                         length=float(np.hypot(*(hi - lo)[:2])), z=(float(lo[2]), float(hi[2])), at=at,
-                        angle=0.0, hint=("the model claims material no bead can lay: draw what prints, a bead-wide strip on "
+                        angle=0.0, hint="a boolean's leftover: no slicer lays it" if kind == "RESIDUE"
+                        else ("the model claims material no bead can lay: draw what prints, a bead-wide strip on "
                                          "whole layers" if hard.any() else
                                          "single-bead material: fine if you meant it, it prints as one line")))
     out.sort(key=lambda s: (s["tier"], -s["volume"]))
