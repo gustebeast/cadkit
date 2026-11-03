@@ -145,6 +145,49 @@ def export_print_parts(parts, orientation, path, name=None):
             fh.write(text)
 
 
+def read_print_parts(path):
+    """[(name, shape)] of a print STEP: one per body of an `export_print_parts`
+    file, named as it was written, or the one body of a plain export, named
+    after the file. For checkers, which judge each filament's body on its own.
+
+    Read through XCAF, not ``cq.Assembly.importStep``: that one keys bodies by
+    name and returns none when a body is named like its file, which is what
+    `export_print_parts` writes (``chassis_1`` in chassis_1.step)."""
+    from OCP.STEPCAFControl import STEPCAFControl_Reader
+    from OCP.TCollection import TCollection_ExtendedString
+    from OCP.TDataStd import TDataStd_Name
+    from OCP.TDF import TDF_Label, TDF_LabelSequence
+    from OCP.TDocStd import TDocStd_Document
+    from OCP.XCAFDoc import XCAFDoc_DocumentTool
+
+    path = str(path)
+    doc = TDocStd_Document(TCollection_ExtendedString("XmlOcaf"))
+    reader = STEPCAFControl_Reader()
+    reader.SetNameMode(True)
+    if reader.ReadFile(path) != 1:
+        raise OSError("could not read STEP %s" % path)
+    reader.Transfer(doc)
+    tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
+
+    def named(label):
+        attr = TDataStd_Name()
+        return attr.Get().ToExtString() if label.FindAttribute(TDataStd_Name.GetID_s(), attr) else ""
+
+    free = TDF_LabelSequence()
+    tool.GetFreeShapes(free)
+    out = []
+    for i in range(1, free.Length() + 1):
+        comps = TDF_LabelSequence()
+        tool.GetComponents_s(free.Value(i), comps)
+        for j in range(1, comps.Length() + 1):
+            ref = TDF_Label()
+            tool.GetReferredShape_s(comps.Value(j), ref)
+            out.append((named(ref), cq.Shape.cast(tool.GetShape_s(comps.Value(j)))))
+    if len(out) > 1:
+        return out
+    return [(pathlib.Path(path).stem, cq.importers.importStep(path).val())]
+
+
 def _pose(ws, rotate):
     """The Workplanes ``ws`` moved by ONE print pose: rotated alike, then
     dropped and centred by their joint bounding box (see `print_pose`)."""
@@ -258,5 +301,7 @@ if __name__ == "__main__":
     assert _back.solids().size() == 2
     _bb = cq.Compound.makeCompound(_back.solids().vals()).BoundingBox()
     assert abs(_bb.zmin) < 1e-6 and abs(_bb.zlen - 6.0) < 1e-6, "posed as one, the lid on the bed"
+    assert [n for n, _ in read_print_parts(_f)] == ["pair", "pair_lid"]
+    assert [n for n, _ in read_print_parts(os.path.join(_d, "nub.step"))] == ["nub"]
 
     print("cadkit.step_export self-test OK")
