@@ -183,8 +183,8 @@ def read_print_parts(path):
             ref = TDF_Label()
             tool.GetReferredShape_s(comps.Value(j), ref)
             out.append((named(ref), cq.Shape.cast(tool.GetShape_s(comps.Value(j)))))
-    if len(out) > 1:
-        return out
+    if len({n for n, _ in out}) > 1:       # a plain export of a multi-solid part is
+        return out                          # components too, all under one name
     return [(pathlib.Path(path).stem, cq.importers.importStep(path).val())]
 
 
