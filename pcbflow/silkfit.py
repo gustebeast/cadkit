@@ -96,6 +96,24 @@ def _bleed_ids(board):
             if g.GetName().split(" ")[0] == "silk_ink_bleed" for it in g.GetItems()}
 
 
+def _bleed_mm(board):
+    """The bleed width kicad_silk laid (its group's name carries it), or 0."""
+    for g in board.Groups():
+        w = g.GetName().split(" ")
+        if w[0] == "silk_ink_bleed" and len(w) > 1:
+            return float(w[1])
+    return 0.0
+
+
+def _grown(pcbnew, ps, mm):
+    """`ps` with the bleed's rim on it: the ink a text prints once the rim is re-laid."""
+    if ps is None or mm <= 0:
+        return ps
+    g = pcbnew.SHAPE_POLY_SET(ps)
+    g.Inflate(pcbnew.FromMM(mm), pcbnew.CORNER_STRATEGY_ROUND_ALL_CORNERS, pcbnew.FromMM(ERR_MM))
+    return g
+
+
 def _centre(box):
     o, s = box.GetOrigin(), box.GetSize()
     return (o.x + s.x // 2, o.y + s.y // 2)
@@ -369,6 +387,10 @@ def fit_refs(board, notes=None, log=print, pcbnew=None):
         # it -- 18 of 18 on pi_cap R2 (2026-11-03), where none needed to. The rim is
         # re-laid round the texts after this pass (finish._relay_bleed).
         bleed = _bleed_ids(board)
+        # ...but the rim is ink, and it is re-laid round the text where it lands: fit
+        # the text WITH it, or a designator parked flush on an opening prints its rim
+        # into it (pi_cap R2 J6, 0.0005 mm2, 2026-11-03)
+        rim = _bleed_mm(board)
         for d in board.GetDrawings():
             if d.GetLayer() != silk_layer or d.m_Uuid.AsString() in bleed:
                 continue
@@ -391,7 +413,7 @@ def fit_refs(board, notes=None, log=print, pcbnew=None):
 
         for fp, f in fields:
             ref = fp.GetReference()
-            base = _poly_of(pcbnew, f, silk_layer)
+            base = _grown(pcbnew, _poly_of(pcbnew, f, silk_layer), rim)
             if base is None:
                 continue
             box = f.GetBoundingBox()
@@ -441,7 +463,7 @@ def fit_refs(board, notes=None, log=print, pcbnew=None):
             _was = (f.GetTextAngle().AsDegrees(), f.IsKeepUpright())
             f.SetTextAngleDegrees(0.0)
             f.SetKeepUpright(True)
-            upright = _poly_of(pcbnew, f, silk_layer)
+            upright = _grown(pcbnew, _poly_of(pcbnew, f, silk_layer), rim)
             f.SetTextAngleDegrees(_was[0])
             f.SetKeepUpright(_was[1])
             if upright is None:
