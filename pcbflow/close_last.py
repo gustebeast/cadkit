@@ -165,7 +165,8 @@ def _zone_point(board, net, layer, toward, inset=0.35):
 
 def _stitch_islands(board, net, plane, clr=0.2, step=0.25):
     """A via in every island of the net's pour that nothing goes through, where the plane's
-    pour is too: [(x, y), ...] laid.
+    pour is too (or, with no plane, a joined piece of the net's pour on another layer):
+    [(x, y), ...] laid.
 
     ⚠ ZONE TO ZONE IS AN ISLAND, NOT A PATH (pi_cap, 2026-11-05). Two of ten nudged reroutes
     came back with "Zone [GND] on B.Cu" open to "Zone [GND] on In2.Cu" -- both named by the
@@ -191,12 +192,19 @@ def _stitch_islands(board, net, plane, clr=0.2, step=0.25):
     pads = [q for f in board.GetFootprints() for q in f.Pads()]
     others = [t for t in board.GetTracks() if t.GetNetname() != net]
     ozones = [z for z in board.Zones() if z.GetNetname() != net and not z.GetIsRuleArea()]
-    planes = []
+    # what an island may be stitched to: the plane's pour, or on a board without one, a piece
+    # of the net's pour on another layer that something already goes through
+    targets = []
     for z in board.Zones():
         if z.GetNetname() == net:
             for L in z.GetLayerSet().Seq():
-                if board.GetLayerName(L) in plane:
-                    planes.append(z.GetFilledPolysList(L))
+                fill = z.GetFilledPolysList(L)
+                for k in range(fill.OutlineCount()):
+                    o = fill.Outline(k)
+                    if board.GetLayerName(L) in plane or any(o.PointInside(t) for t in thru):
+                        ps = pcbnew.SHAPE_POLY_SET()
+                        ps.AddOutline(o)
+                        targets.append((L, ps))
 
     def ring(ps, x, y, rr):
         return all(ps.Contains(at(x + dx * rr, y + dy * rr)) for dx, dy in
@@ -239,7 +247,8 @@ def _stitch_islands(board, net, plane, clr=0.2, step=0.25):
                        for j in range(int((y1 - y0) / step) + 1)]
                 pts.sort(key=lambda q: (q[0] - cx) ** 2 + (q[1] - cy) ** 2)
                 for x, y in pts:
-                    if ring(isl, x, y, r + 0.05) and any(ring(ps, x, y, r + 0.05) for ps in planes) \
+                    if ring(isl, x, y, r + 0.05) and any(TL != L and ring(ps, x, y, r + 0.05)
+                                                          for TL, ps in targets) \
                             and legal(x, y):
                         v = pcbnew.PCB_VIA(board)
                         v.SetPosition(at(x, y))
