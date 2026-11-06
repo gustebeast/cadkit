@@ -458,6 +458,7 @@ class Side:
 
     def __init__(self, board, back, dark=(), read=0.0, body_marks=()):
         self.small = []          # labels that only fitted under the legible size
+        self.last = None         # (text, rect) of the last place(), for take_back()
         self.read = read % 360.0 # the board's reading direction (`silk_read`)
         self.turned = []         # (label, why) for each one laid a quarter turn off it
         self.board, self.back = board, back
@@ -675,7 +676,17 @@ class Side:
         r[k] -= MM(LINE_GAP)
         r[k + 2] += MM(LINE_GAP)
         self.rects.append(r)
+        self.last = (t, r)
         return True
+
+    def take_back(self):
+        """Lift the last label place() laid, and free its site."""
+        t, r = self.last
+        self.board.Remove(t)
+        self.rects.remove(r)
+        if t.GetText().split(chr(10))[0] in self.small:
+            self.small.remove(t.GetText().split(chr(10))[0])
+        self.last = None
 
 
 # A net's short word for a per-way label, where the board's notes give none. Matched in
@@ -1375,23 +1386,30 @@ def silk(stem, rev=None, dark=(), labels=None, short=None, refs=None, way_words=
     if id_legend:
         box = board.GetBoardEdgesBoundingBox()
         span = max(box.GetWidth(), box.GetHeight()) / 1e6
-        spare = iter([c for c in ID_CHARS if c not in set(wanted.values())])
+        spare = [c for c in ID_CHARS if c not in set(wanted.values())]
         for label in list(missed):
             fp = next((f for f in fps if f.GetReference() == label.split()[0]), None)
             if fp is None or label.endswith("mark") or "way-1" in label:
                 continue
-            ident = next(spare, None)
-            if ident is None:
+            if not spare:
                 break
+            ident = spare[0]
             text = spelt.get(label, label)
             key = "%s %s" % (ident, text)
             here = sides[fp.IsFlipped()]
-            if not any(q.place_legible(key, SIZE_J, box.GetCenter(), span, step=1.0, wider=False)
-                       for q in (sides[not fp.IsFlipped()], here)):
+            keyed = next((q for q in (sides[not fp.IsFlipped()], here)
+                          if q.place_legible(key, SIZE_J, box.GetCenter(), span, step=1.0,
+                                             wider=False)), None)
+            if keyed is None:
                 continue
             if here.place_legible(ident, SIZE_J, fp.GetPosition(), PINOUT_REACH, wider=False):
+                spare.pop(0)
                 missed.remove(label)
                 done.append("%s as identifier %s" % (label, ident))
+            else:
+                # no room for the identifier at the part: a legend line naming a letter
+                # printed nowhere else is worse than none, so it comes back off
+                keyed.take_back()
 
     for d in old:                           # after every read; the save is next
         board.Remove(d)
