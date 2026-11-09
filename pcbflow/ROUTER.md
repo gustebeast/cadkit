@@ -1,8 +1,8 @@
 # pcbflow's own router
 
 Started 2026-11-08. Replaces freerouting in `finish.py` (layout -> **route** -> unwick ->
-repair_planes -> DRC -> close_last) with `PCBFLOW_ROUTER=own`; it becomes the default once
-the full chain signs it off (router-alone it routes every board, 2026-11-09).
+repair_planes -> DRC -> close_last); the default since 2026-11-09, when all 15 boards reached
+0 / 0 / 0 FAIL through the full chain on it (`PCBFLOW_ROUTER=freerouting` brings back route.py).
 
 ## Why
 
@@ -137,7 +137,8 @@ block was U1 west / C52, the spot that ate the freerouting nudge series.
    layout.py, so placement is judged before a detailed route is spent on it.
 5. **M5 parity**: all four boards (optical, motor_ctrl, pi_cap, output_panel) at their
    targets on it, then every finish-chain board. Router-alone: all 15 boards, 0 nets
-   open, 0 pair faults (2026-11-09). Default switch pending the full-chain sign-off.
+   open, 0 pair faults; full chain: all 15 at 0 unconnected / 0 violations / 0 quality
+   FAIL, unmoved (2026-11-09, cadkit 1d4fbee). DONE: it is the default.
 
 Each milestone is measured against the freerouting baseline on the same placed board
 (`<stem>.unrouted.kicad_pcb`): unconnected, DRC errors, quality FAILs, wall time.
