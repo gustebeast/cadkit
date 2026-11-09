@@ -89,6 +89,24 @@ which is placement feedback rather than a coin flip.
   body is re-joined to the main body only, the others re-negotiating round it, and the
   result is kept only if no more nets end open. Optical +3V3D, 2026-11-09: an islanded
   join on 16 of 19 nudges became close_last's 13.5 mm closure across a 1.7 mm gap (A23).
+- **A slot in the return plane is crossed square** (`model._ref_voids`, `VOID_COST`): each
+  routing layer's reference plane is the nearest ground copper in the stack, as quality
+  A15 reads it; where that plane is void for `VOID_MIN_MM` or more (a socket's row of
+  antipads, the cut under a photodiode) a signal pays 3x a cell, so it crosses short and
+  never runs along. pi_cap UI_ENC_A ran 11.77 mm along the 40-pin row against 9.3 signed.
+- **A net stuck in a stalled negotiation looks wider** (`WIDEN_AFTER`, `STALL_ROUNDS`):
+  the window grew only when it held NO path, and a shared one always exists, so two
+  pi_cap nets fought over one gap at pf 576 and were ripped out. Once the negotiation is
+  `STALL_ROUNDS` without gain, a net sharing `WIDEN_AFTER` rounds starts at 12 mm, then
+  the whole board. Only when stalled, never a matched pair: widening while it still
+  improved moved optical's nets round its USB pair and left the pair unfinishable.
+- **A pair attempt whose rails overlap is no attempt** (`_pair_try`): "fewest shared
+  cells" counted the rails sharing with each other, which `_displace` (pair held, rest
+  moved) can never undo; USB_DP and USB_DM were written 0.33 mm into each other.
+- **Exact clearance of what is written** (`geomcheck.check`, ROUTER.md M2): every emitted
+  segment and via against other nets' pads (exact shape), tracks, vias and new copper,
+  each shortfall named with what drew it (run, stub, via). 0 on every board, 2026-11-09;
+  run it after any change to emit or the pair finish.
 
 ## Placement feedback
 
