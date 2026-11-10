@@ -1983,6 +1983,17 @@ class Router:
                             self.hist_v[rv] += hf
                             shared = True
                             bad_q.add(q)
+                # ⚠ A PIECE CUT OFF THE POUR IS AS UNFINISHED AS ONE SHARING SPACE (optical
+                # +3V3D by U6, 2026-11-09): PLANE_MAIN aims a join at the main body when the net
+                # is routed, but a net routed later in the round can still cut its target off;
+                # the plane net was not sharing, so never re-routed, and the island showed only
+                # at the end, where the island pass could not undo it past the locked ULPI
+                # group. Cut-off pieces count as shared and are re-joined next round.
+                if self.PLANE_MAIN and net.plane and not net.fixed and len(net.paths) == len(net.pieces) - 1:
+                    got = self._islands(net)
+                    if got is not None and got[0]:
+                        shared = True
+                        bad_q.update(q - 1 for q in got[0])
                 # ⚠ A PLANE NET RE-JOINS ONLY THE PIECES THAT SHARE (optical +3V3D,
                 # 2026-11-09: ~55 pieces, each its own join to the pour, and one or two
                 # sharing space re-searched all of them every round -- 220 searches, a third
