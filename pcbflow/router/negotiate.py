@@ -430,7 +430,7 @@ class Router(CoupledMixin):
             # straight-line distance to the nearest target cell, in cells (search.py)
             from scipy.ndimage import distance_transform_edt
             t2 = tgt.reshape(L, h * w).any(axis=0).reshape(h, w)
-            hmap = distance_transform_edt(~t2).astype(np.float32).ravel()
+            hmap = (S.edt_to(t2) if t2.any() else distance_transform_edt(~t2).astype(np.float32)).ravel()
             if turn:
                 g, par, st, base = bufs.take(L * h * w * 9)
                 return S.astar_turn_s_h(cellf, vcellf, src_idx, tgt, L, h, w, vc, tb, hmap,
