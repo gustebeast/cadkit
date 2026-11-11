@@ -461,6 +461,12 @@ def _place(parts, notes, rules, keep=()):
             if c in placed_sat and c != anc:
                 sats.setdefault(anc, []).append((c, r))
     moved, gain = _local(G, parts, pl, [r for r in free if r not in miss], rots, inreg, wnet, rules, notes_c, sats)
+    # ---- 6. forbid zones: repair, else say so
+    unmet = _forbid_repair(G, parts, pl, rules, notes_c, inreg, target, rots, rot, sats, set(idx) - set(miss), why, log)
+    for x, det, w in unmet:
+        log.append("FORBID NOT MET: %s %s -- %s (the floorplan does not fit: move a fixed part, "
+                   "shrink the zone, or give the cell room)" % (x, det, w))
+        why[x] = why.get(x, "") + "; FORBID NOT MET: " + det
     log.append("local pass: %d parts moved, small-net wirelength %.0f -> %.0f mm" % (moved, gain[0], gain[1]))
     log.append("placed %d free parts (%d satellites at their pins), %d with no room: %s"
                % (len(free) - len(miss), len(placed_sat), len(miss), " ".join(miss)))
@@ -738,6 +744,112 @@ def _apart_forbid(G, parts, pl, ref, rules):
     return out
 
 
+def _lift(G, parts, pl, r):
+    m, ai, aj = mask(parts[r], pl[r][2])
+    _unstamp(G, m, ai, aj, *G.ij(*pl[r][:2]), grow=halo(parts[r]))
+    return pl.pop(r)
+
+
+def _put_back(G, parts, pl, r, pose):
+    pl[r] = list(pose)
+    m, ai, aj = mask(parts[r], pl[r][2])
+    _stamp(G, m, ai, aj, *G.ij(*pl[r][:2]), grow=halo(parts[r]))
+
+
+def _forbid_repair(G, parts, pl, rules, notes, inreg, target, rots, rot, sats, free, why, log):
+    """Every `forbid` apart/thermal rule checked on the finished placement. A breaking part
+    (either side, free ones only) gets one repair: lifted with its satellites and dropped
+    inside its zone near its target; failing that, the free parts nearest the target are
+    lifted too (up to six) and the drop retried, then they are re-dropped. Anything that
+    does not land reverts. Returns the breaches left: [(subject, detail, why)].
+
+    ⚠ WHY (lead, 2026-11-11): optical's buck cell fell back to 7.3 mm from the PHY crystal
+    against a 10 mm forbid, and that was only visible as a soft line in the score. A zone
+    the legaliser could not honour is the intent author's to know about: the floorplan
+    does not fit."""
+    def breaches():
+        P = pi.Placed(parts, pl)
+        out = []
+        for r in rules:
+            if r["kind"] in ("apart", "thermal") and r.get("forbid", True):
+                try:
+                    for sl, subj, det in pi.check(r, P, notes):
+                        if sl < -0.05:
+                            out.append((sl, subj, det, r))
+                except (KeyError, ValueError):
+                    pass
+        return sorted(out, key=lambda t: t[0])
+
+    def zone(x):
+        fz, f0 = _apart_forbid(G, parts, pl, x, rules), inreg.get(x)
+        return f0 if fz is None else (fz if f0 is None else fz | f0)
+
+    def attempt(x):
+        if x not in free or x not in pl:
+            return False
+        own = [c for c, _ in (sats or {}).get(x, ()) if c in pl and c in free]
+        own = list(dict.fromkeys(own))
+        olds = {g: list(pl[g]) for g in [x] + own}
+        for g in [x] + own:
+            _lift(G, parts, pl, g)
+        t = target.get(x, np.asarray(olds[x][:2]))
+        freed = {}
+        ok = _drop(G, parts, x, t, rots(x, rot.get(x, olds[x][2])), pl, zone(x), near_mm=WINDOW)
+        if not ok:
+            near = sorted((float(np.hypot(*(np.asarray(pl[p][:2]) - t))), p) for p in free
+                          if p in pl and p not in olds and p not in sats)
+            for _, p in near[:6]:
+                freed[p] = list(pl[p])
+                _lift(G, parts, pl, p)
+            ok = _drop(G, parts, x, t, rots(x, rot.get(x, olds[x][2])), pl, zone(x), near_mm=WINDOW)
+        placed = [x] if ok else []
+        if ok:
+            for c, r in (sats or {}).get(x, ()):
+                if c in olds and c not in pl:
+                    P = pi.Placed(parts, pl)
+                    if _drop_sat(G, parts, c, _seat(r, P, pl, x), rots(c, olds[c][2]), pl, inreg.get(c), x, r):
+                        placed.append(c)
+                    else:
+                        ok = False
+                        break
+        if ok:
+            for p in freed:
+                if _drop(G, parts, p, target.get(p, np.asarray(freed[p][:2])), rots(p, freed[p][2]), pl, zone(p))                         or _drop(G, parts, p, target.get(p, np.asarray(freed[p][:2])), rots(p, freed[p][2]), pl,
+                                 inreg.get(p)):
+                    placed.append(p)
+                else:
+                    ok = False
+                    break
+        if not ok:
+            for g in placed:
+                _lift(G, parts, pl, g)
+            for g, pose in list(olds.items()) + list(freed.items()):
+                _put_back(G, parts, pl, g, pose)
+            return False
+        why[x] = why.get(x, "") + "; re-dropped clear of its forbid zone" + (
+            " (lifted %s)" % " ".join(freed) if freed else "")
+        return True
+
+    first = breaches()
+    tried = set()
+    for sl, subj, det, r in first:
+        other = det.split(" from ")[-1].split(",")[0].strip() if " from " in det else None
+        for x in (subj, other):
+            if x and x not in tried:
+                tried.add(x)
+                if attempt(x):
+                    break
+    left = breaches()
+    if first:
+        log.append("forbid zones: %d breach(es) before repair, %d after" % (len(first), len(left)))
+    seen, out = set(), []
+    for sl, subj, det, r in left:
+        if subj not in seen:
+            seen.add(subj)
+            out.append((subj, det, r.get("why", "")))
+    return out
+
+
 def _drop_sat(G, parts, c, t, rots, pl, forbid, anchor, rule, near_mm=None):
     """_drop for a satellite. A DECAP may stand inside its own anchor's escape halo (down to
     HALO_SMALL off the courtyard): the halo is room for the IC's signal pins to get out, and
@@ -812,6 +924,7 @@ def main(argv):
     ap.add_argument("intent")
     ap.add_argument("--out")
     ap.add_argument("--keep", default="")
+    ap.add_argument("--strict", action="store_true", help="exit 3 if a forbid zone is not met")
     a = ap.parse_args(argv)
     stem = os.path.abspath(a.stem)
     parts = json.load(open(stem + ".parts.json", encoding="utf-8"))["parts"]
@@ -826,6 +939,12 @@ def main(argv):
     json.dump(pl, open(out, "w"), indent=0)
     json.dump(why, open(out[:-5] + ".why.json" if out.endswith(".json") else out + ".why", "w"), indent=0)
     print("place_init: %d placements -> %s (%.1f s)" % (len(pl), out, time.time() - t0))
+    unmet = [line for line in log if line.startswith("FORBID NOT MET")]
+    if unmet:
+        print("place_init: %d forbid zone(s) NOT MET -- the floorplan does not fit as written" % len(unmet),
+              file=sys.stderr)
+        if a.strict:
+            return 3
     return 0
 
 

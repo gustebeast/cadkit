@@ -437,6 +437,21 @@ is not fixed becomes one COMPOSITE part for every stage of place_init (`place()`
   The PHY cell came out identical to the hand cell. The buck cell turned 90 degrees into a
   column beside the inlet, as one unit.
 
+**An unmet forbid zone is not a soft breach (lead, 2026-11-11).** After the local pass,
+place_init re-checks every `forbid` rule and repairs what breaks:
+* It lifts the breaking part (either side, free parts only) with its satellites and drops
+  it inside its zone near its target.
+* If that fails, it lifts the six nearest free parts too, retries, then re-drops them.
+* Anything that does not land reverts.
+* What is left is logged as `FORBID NOT MET: <part> <distance> -- <why>` and summarised on
+  stderr. `--strict` exits 3.
+* Composite cells are now judged by their hull in the checker. That alone cleared optical
+  vI9's buck-to-PHY-crystal breach: the local pass now sees the whole cell, and init10 has
+  0 floor breaches.
+* Tested with an impossible zone (U13 60 mm from J2, which its region keeps it beside):
+  NOT MET, exit 3. Optical (auto) and output_panel place byte-identically.
+* The lift-the-neighbours path has not yet fired on a real board.
+
 **auto_floorplan(parts)** (place_intent, alongside auto_decaps; lead request). These are
 default noise `apart` rules derived from the netlist:
 * Switch nodes are found from an inductor on a small non-supply net shared with an IC pin.
