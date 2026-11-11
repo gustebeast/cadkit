@@ -241,8 +241,27 @@ Results on the same router (single routes):
 | hand R2, stripped (+3V3 open) | 3 | 253 | 2484 | 603 s |
 
 On equal terms the 280 is level with the hand board's 253. The hand board leaves +3V3
-open, and +3V3 alone takes 27 vias and 189 mm on the intent board. +3V3 is a supply routed
-as a signal tree, so it is the case for **pours from intent**, the next piece of (p).
+open, and +3V3 alone takes 27 vias and 189 mm on the intent board.
+
+**Power is a width; a pour only where a layer is spare (measured 2026-11-11, lead
+ruling).** +3V3 on the same 0-open placement, one route each:
+
+| +3V3 as | open | pair faults | vias (+3V3's) | signal mm on In2 |
+|---|---|---|---|---|
+| signal tree | 0 | 1 | 280 (27) | 668 |
+| pour on In2 over the digital band | 0 | 3 | 318 (51) | 216 |
+| 0.4 mm tree | 0 | 0 | 271 (30) | 648 |
+
+On a 4-layer board whose In2 is the only inner signal layer, the pour costs a via per pin
+and pushes the escapes off In2. The rules:
+* A power net gets a width, from a `current(net, amps)` rule in the intent:
+  `place_intent.widths(rules)` gives {net: mm} (IPC-2221 outer curve, 10 C rise, 1 oz,
+  rounded up to 0.05, at least 0.2), which the generator writes into `net_widths`.
+  Examples: 1 A is 0.35 mm, 1.5 A 0.55, 3 A 1.4.
+* A pour (a zone with net, layer and poly) is for a region whose layer has nothing else to
+  carry there, like optical's +3V3D on B.Cu under U6.
+
+Against the hand board's 253: the 0.4 mm tree is 271 with +3V3 routed, and 241 without it.
 
 **Held copper on paste-window lands, every board (survey 2026-11-10, main 622e87e).** These
 are lands with F.Paste-only windows, which the router could not start a path from before

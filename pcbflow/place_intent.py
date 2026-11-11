@@ -47,6 +47,8 @@ ELECTRICAL / FLOORPLAN
   rot       ref allowed            rotation in the allowed set
   side      ref F|B
   array     refs axis pitch [tol]  one rule for a repeat: same off-axis, equal pitch along
+  current   net amps [dT]          the current a net carries: widths() turns it into the track
+                                   width (IPC-2221), so power is drawn as power
   tight     nets max_mm [weight]   a loop the datasheet wants small (a buck's SW node, its FB,
                                    a crystal's legs): each net's pads within max_mm (half
                                    perimeter); place_init pulls these nets x weight
@@ -328,6 +330,8 @@ def check(rule, P, notes, H=None):
                 a = np.asarray(pts)
                 hp = float(np.ptp(a[:, 0]) + np.ptp(a[:, 1]))
                 out.append((rule["max_mm"] - hp, nm, "%.1f mm across, wants %.1f" % (hp, rule["max_mm"])))
+    elif k == "current":
+        pass                                # a width, not a placement: see widths()
     elif k == "array":
         refs = _refs(rule["refs"], parts)
         ax = 0 if rule["axis"] in ("x", "X") else 1
@@ -489,6 +493,32 @@ def auto_singles(parts, ground=("GND",), max_mm=8.0, skip=(), weight=0.5, two_pa
                       "weight": weight,
                       "why": "%s carries only %s: at its driver pin" % (ref, net), "src": "auto_singles (netlist)"})
     return rules
+
+
+def width_for(amps, dT=10.0, oz=1.0, inner=False, min_mm=0.2):
+    """IPC-2221 track width (mm) for a current: I = k dT^0.44 A^0.725, A in mil^2, k 0.048
+    outer / 0.024 inner, 1 oz = 1.378 mil. Rounded up to 0.05 mm, never under min_mm."""
+    k = 0.024 if inner else 0.048
+    area = (amps / (k * dT ** 0.44)) ** (1.0 / 0.725)          # mil^2
+    w = area / (1.378 * oz) * 0.0254                            # mm
+    return round(max(min_mm, math.ceil(w / 0.05 - 1e-9) * 0.05), 2)
+
+
+def widths(rules, inner=False, **kw):
+    """{net: width mm} from the intent's `current` rules -- what a generator writes into
+    notes["net_widths"]. The OUTER curve by default: IPC-2221's inner k (half the outer)
+    is the chart IPC-2152 found far too conservative -- an inner track in a board with
+    planes runs about as cool as an outer one -- and at 3 A it asks 3.6 mm against 1.4.
+
+    ⚠ WHY (output_panel, 2026-11-11): +3V3 as a signal tree took 27 vias and 189 mm; as a
+    pour on In2 (the only inner signal layer) 51 vias, one per pin, and it pushed 450 mm of
+    escapes off In2 (pair faults 1 -> 3); as a 0.4 mm tree 30 vias and 0 faults. Power is a
+    width, from the current it carries; a pour only where a region has a layer to spare."""
+    out = {}
+    for r in rules:
+        if r["kind"] == "current":
+            out[r["net"]] = width_for(float(r["amps"]), r.get("dT", 10.0), inner=inner, **kw)
+    return out
 
 
 def read_values(net_path):
