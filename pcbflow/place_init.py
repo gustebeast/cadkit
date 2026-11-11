@@ -376,6 +376,14 @@ def _place(parts, notes, rules, keep=()):
                 best = (c, a)
         rot[ref] = best[1]
 
+    # ---- 3b. a declared pair's chain parts face each other
+    got = _pair_turns(parts, list(notes.get("diff_pairs", ())), pl, target, rot, rot_of)
+    for ref_, a_ in got.items():
+        rot[ref_] = a_
+        rot_of[ref_] = [a_]
+    if got:
+        log.append("pairs: chain parts turned %s" % " ".join("%s:%g" % kv for kv in got.items()))
+
     # ---- 4. legal
     G = Grid(poly, [dict(c) for c in notes.get("cutouts", ())] +
              [{"xy": r["xy"], "d": r["d"], "keepout": r.get("keepout", 0.0)} for r in rules if r["kind"] == "hole"],
@@ -451,6 +459,33 @@ def _place(parts, notes, rules, keep=()):
                 why[c] = "net graph (its anchor part had no room near it)"
             else:
                 miss.append(c)
+    # ---- 4b. pair turns again, on the parts' real positions
+    # ⚠ THE QUADRATIC TARGET IS NOT WHERE A SATELLITE LANDS (optical, 2026-11-11): U10 (the
+    # ESD clamp, `near` J1) was turned on its quadratic target -- by U7, not J1 -- and the
+    # turn that faced the pair there (0) was the worst one where it was dropped (cost 70
+    # against 21 at 90). Decided again here, each changed part re-dropped at its spot.
+    ch = list(dict.fromkeys(c for sp in notes.get("diff_pairs", ()) for c in sp.get("chain", ())
+                            if c in idx and c in pl))
+    if ch:
+        pl_x = {k: v for k, v in pl.items() if k not in ch}
+        cur = {c: np.asarray(pl[c][:2]) for c in ch}
+        got = _pair_turns(parts, list(notes.get("diff_pairs", ())), pl_x, cur, {c: pl[c][2] for c in ch},
+                          {c: [0.0, 90.0, 180.0, 270.0] for c in ch})
+        for c, a_ in got.items():
+            if abs((a_ - pl[c][2] + 180.0) % 360.0 - 180.0) < 0.5:
+                rot_of[c] = [pl[c][2]]
+                continue
+            old = list(pl[c])
+            _lift(G, parts, pl, c)
+            if _drop(G, parts, c, cur[c], [a_], pl, inreg.get(c), near_mm=3.0):
+                rot_of[c] = [a_]
+                rot[c] = a_
+                log.append("pairs: %s re-turned %g -> %g where it landed" % (c, old[2], a_))
+                # its satellites stay where they were seated; the local pass moves the group
+            else:
+                _put_back(G, parts, pl, c, old)
+                rot_of[c] = [old[2]]
+
     # ---- 5. local: lift each part and put it back nearer its nets, if that is shorter
     notes_c = dict(notes, _regions={r["name"]: r["poly"] for r in rules if r["kind"] == "region"},
                    _panel=[r for r in rules if r["kind"] == "panel"])
@@ -742,6 +777,91 @@ def _apart_forbid(G, parts, pl, ref, rules):
         f = distance_transform_edt(occ == 0) * G.g < float(r.get("min_mm", r.get("apart_mm", 0.0)))
         out = f if out is None else (out | f)
     return out
+
+
+def _pair_turns(parts, specs, pl, target, rot, rot_of):
+    """Rotations for the FREE parts of declared pairs' chains, so each hop's facing pads line
+    up. `specs` is a list of diff_pairs specs, decided TOGETHER: a part in several chains
+    (output_panel's hub U4 in three) gets one turn that serves all of them, not the last
+    spec's. Cost, summed over every hop of every chain: |DP_a - DP_b| + |DM_a - DM_b|
+    between facing pads (a pass-through's in-hop and out-hop use different pads), 20 mm for
+    crossed rails, and 3 mm x |cos| per hop end whose DP-DM baseline is not square to the
+    hop. Exhaustive over the free parts' allowed turns (<= 256 combinations, else {}).
+
+    ⚠ WHY (optical, 2026-11-11): the turn stage scores each pad against its net's centroid,
+    and a pass-through clamp (U10, the same two nets on both ends) scores the same in
+    every rotation -- it was left turned across the chain, layout's coupled-pair layer
+    found "no clear path U7->U10" and handed the pair to the router: 3-5 mm uncoupled.
+    Facing it: 1.15 mm."""
+    import itertools
+    specs = [sp for sp in specs if len(sp.get("nets", ())) == 2
+             and len([c for c in sp.get("chain", ()) if c in parts]) >= 2]
+    # ONLY PASS-THROUGH PARTS are turned here: a mid-chain part with two pads on each pair
+    # net. A chain END (a PHY, a hub, a connector) is turned well by the turn stage's pad
+    # pull already -- ⚠ output_panel, 2026-11-11: turning the hub U4 and U14 by this cost
+    # took the board's uncoupled 0 -> 15.2 mm.
+    def thru(sp, c):
+        ch = [x for x in sp["chain"] if x in parts]
+        return (c in ch[1:-1] and all(sum(q["net"] == n for q in parts[c]["pads"]) >= 2 for n in sp["nets"]))
+    free = list(dict.fromkeys(c for sp in specs for c in sp["chain"]
+                              if c in parts and c not in pl and thru(sp, c)))
+    if not free:
+        return {}
+    opts = [rot_of.get(c, [0.0, 90.0, 180.0, 270.0]) for c in free]
+    if np.prod([len(o) for o in opts]) > 256:
+        return {}
+
+    def pads(c, a, nets):
+        xy = np.asarray(pl[c][:2]) if c in pl else target[c]
+        off = _pad_off(parts[c], a)
+        return {n: [(q["num"], xy + o) for q, o in zip(parts[c]["pads"], off) if q["net"] == n] for n in nets}
+
+    def cross(p1, p2, q1, q2):
+        d = lambda a, b, c: (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        return (d(p1, p2, q1) * d(p1, p2, q2) < 0) and (d(q1, q2, p1) * d(q1, q2, p2) < 0)
+
+    def chain_cost(sp, ang):
+        nets = sp["nets"]
+        chain = [c for c in sp["chain"] if c in parts]
+        P = {c: pads(c, ang[c] if c in ang else (pl[c][2] if c in pl else rot.get(c, 0.0)), nets) for c in chain}
+        cost = 0.0
+        used = {c: set() for c in chain}      # a pass-through's in-hop and out-hop use different pads
+        for a_, b_ in zip(chain, chain[1:]):
+            ends = []
+            for n in nets:
+                ua = [(k, u) for k, u in P[a_][n] if k not in used[a_]] or P[a_][n]
+                ub = [(k, v) for k, v in P[b_][n] if k not in used[b_]] or P[b_][n]
+                if not ua or not ub:
+                    break
+                d, ka, kb, pa, pb = min((float(np.hypot(*(u - v))), k1, k2, tuple(u), tuple(v))
+                                        for k1, u in ua for k2, v in ub)
+                cost += d
+                used[a_].add(ka)
+                used[b_].add(kb)
+                ends.append((np.asarray(pa), np.asarray(pb)))
+            if len(ends) == 2 and cross(ends[0][0], ends[0][1], ends[1][0], ends[1][1]):
+                cost += 20.0
+            if len(ends) == 2:
+                # FACING: each end's DP-DM baseline square to the hop. A pad pair stacked
+                # along the hop (U10 at 0 deg under U7) leaves one rail behind the other, and
+                # the router's pair ran 2.4 mm apart there converging (optical vI8).
+                hop = (ends[0][1] + ends[1][1]) / 2.0 - (ends[0][0] + ends[1][0]) / 2.0
+                hn = float(np.hypot(*hop)) or 1.0
+                for side in (0, 1):
+                    base = ends[0][side] - ends[1][side]
+                    bn = float(np.hypot(*base)) or 1.0
+                    cost += 3.0 * abs(float(base @ hop)) / (bn * hn)
+        return cost
+
+    best = None
+    for combo in itertools.product(*opts):
+        ang = dict(zip(free, combo))
+        cost = sum(chain_cost(sp, ang) for sp in specs)
+        if os.environ.get("PAIR_DEBUG"):
+            print("  PAIR_DEBUG %s cost %.2f" % (ang, cost))
+        if best is None or cost < best[0] - 1e-6:
+            best = (cost, ang)
+    return dict(best[1]) if best else {}
 
 
 def _lift(G, parts, pl, r):
