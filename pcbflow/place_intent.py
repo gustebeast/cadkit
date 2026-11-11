@@ -437,7 +437,7 @@ def auto_decaps(parts, notes, values=None, max_mm=3.0, bulk_mm=8.0, bulk_f=1.5e-
     return rules
 
 
-def auto_singles(parts, ground=("GND",), max_mm=5.0, skip=()):
+def auto_singles(parts, ground=("GND",), max_mm=8.0, skip=(), weight=0.5, two_pad=False):
     """A `near` rule for every part with ONE signal net (test pads, a lone jumper or probe
     point): at that net's driver pin -- an IC's pin on the net (most pads first), else the
     pin of the part with most pads. Placement-independent, so a fresh board gets it too.
@@ -445,7 +445,12 @@ def auto_singles(parts, ground=("GND",), max_mm=5.0, skip=()):
     ⚠ WHY (output_panel intent board, 2026-11-11): TP1 (SWDIO's probe pad) was free, landed
     12 mm from U1.48 on the net graph's average, and SWDIO stayed open through a round of
     refinement that never got to it. A single-net part belongs at its pin; said once here,
-    place_init puts it there as a satellite."""
+    place_init puts it there as a satellite.
+
+    ⚠ TEST PADS ONLY BY DEFAULT, LOOSE (lead ruling 2026-11-11). Applied to every two-pad
+    part whose other end is ground as well (pull-downs, filter caps), a 5 mm rule put 26
+    satellites against U1's pins and routed 4 open against 1: where a pull-up goes is a
+    judgement about escapes. two_pad=True opts those in."""
     rules = []
     for ref in sorted(parts):
         if ref in skip:
@@ -456,7 +461,7 @@ def auto_singles(parts, ground=("GND",), max_mm=5.0, skip=()):
             continue
         # a test pad, or a two-pad part whose other end is ground (pull-down, filter cap,
         # clamp); never a connector, whose place is the mechanical design's
-        if not (re.match(r"^TP\d", ref) or (len(pads) == 2 and re.match(r"^[RCD]\d", ref))):
+        if not (re.match(r"^TP\d", ref) or (two_pad and len(pads) == 2 and re.match(r"^[RCD]\d", ref))):
             continue
         net = nets.pop()
         cands = []
@@ -470,6 +475,7 @@ def auto_singles(parts, ground=("GND",), max_mm=5.0, skip=()):
             continue
         _, _, o, num = min(cands)
         rules.append({"kind": "near", "ref": ref, "target": "%s.%s" % (o, num), "max_mm": max_mm, "hard": False,
+                      "weight": weight,
                       "why": "%s carries only %s: at its driver pin" % (ref, net), "src": "auto_singles (netlist)"})
     return rules
 

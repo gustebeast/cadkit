@@ -155,10 +155,19 @@ Result on the same router, held copper stripped: **0 open, 0.0 mm uncoupled**, 3
 303 s. The one fault left is THRU_DP, which is parked. The stripped hand placement on the
 same router: 3 open.
 
-`auto_singles` (a `near` rule at its driver pin for a test pad, or for a two-pad part
-whose other end is ground) exists, but is not used by default. On output_panel it put 26
-more satellites against U1's pins and routed 4 open against 1. A pull-up's place is a
-judgement about escapes that a flat 5 mm rule does not make.
+`auto_singles`: a `near` rule tying a single-net part to its driver pin. By default it
+covers test pads only, at 8 mm and weight 0.5 (lead ruling 2026-11-11). Two-pad parts
+whose other end is ground are opt-in (`two_pad=True`). Applied flat to those at 5 mm, it
+put 26 more satellites against U1's pins and routed 4 open against 1. A pull-up's place is
+a judgement about escapes that a flat rule does not make.
+
+**Check at re-layout: stitches that cross an exit lane.** On the 0-open intent board, three
+fine-pitch GND pads could reach a via only by crossing a neighbouring signal pin's exit
+lane: **U5.6** (LMR33630 VQFN-HR 0.5 mm), **U13.10** and **U13.11** (X2QFN-12, 0.4 mm). The
+board routes, so the crossings stranded nobody here. On a re-layout, layout names them
+again ("stitch: N fine-pitch pad(s) could only reach a via across a neighbour's exit
+lane"). Either widen those parts' neighbourhoods, or check that the signal pins beside
+them still route.
 
 **Proof:** re-place output_panel from intent alone (mechanical + floorplan; no hand
 coordinates except the panel), route it, and compare `score.py` with the hand placement.
