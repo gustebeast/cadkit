@@ -47,6 +47,9 @@ ELECTRICAL / FLOORPLAN
   rot       ref allowed            rotation in the allowed set
   side      ref F|B
   array     refs axis pitch [tol]  one rule for a repeat: same off-axis, equal pitch along
+  tight     nets max_mm [weight]   a loop the datasheet wants small (a buck's SW node, its FB,
+                                   a crystal's legs): each net's pads within max_mm (half
+                                   perimeter); place_init pulls these nets x weight
 
 `auto_decaps(parts, notes)` proposes a decap rule for every capacitor that sits across an
 IC's supply and ground, at its nearest supply pin -- the rule a fresh board gets for free.
@@ -317,6 +320,14 @@ def check(rule, P, notes, H=None):
     elif k == "side":
         ref = rule["ref"]
         out.append((0.0 if parts[ref]["side"] == rule["side"] else -1.0, ref, "on %s" % parts[ref]["side"]))
+    elif k == "tight":
+        for nm in rule["nets"]:
+            pts = [P.pad(ref, q["num"]) for ref, p in P.parts.items() if ref in P.pl
+                   for q in p["pads"] if q["net"] == nm]
+            if len(pts) >= 2:
+                a = np.asarray(pts)
+                hp = float(np.ptp(a[:, 0]) + np.ptp(a[:, 1]))
+                out.append((rule["max_mm"] - hp, nm, "%.1f mm across, wants %.1f" % (hp, rule["max_mm"])))
     elif k == "array":
         refs = _refs(rule["refs"], parts)
         ax = 0 if rule["axis"] in ("x", "X") else 1

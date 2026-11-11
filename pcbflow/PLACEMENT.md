@@ -211,6 +211,39 @@ features.**
 Lesson for fresh boards: stitch exceptions belong to the copper that made them needed, so
 they go wherever that copper goes.
 
+**Where the intent board's extra vias came from (2026-11-11).** The 0-open intent board had
+328 vias against the hand board's 253; both had their held copper stripped. Counted net by
+net, the excess was not on the power nets.
+* It was on short local nets that the hand board routes with no via at all. The worst
+  were the buck's SW node at 44 mm (hand 9), FB at 34 mm (3.4) and DAC_R_FILT at 52 mm
+  (3.6).
+* Total wirelength was the same as the hand board's. A few parts had simply been dropped
+  across the board: the legaliser places greedily, and nothing pulled them back.
+
+Fixes, in place_init:
+* **Local pass.** Each part is lifted and dropped at the free spot nearest its nets'
+  optimum, each allowed turn tried on its own. It is kept only if its nets plus RULE_W x
+  its soft-rule breaches get cheaper.
+* **Group moves.** An anchor moves with its decap/near satellites, which are re-seated at
+  their pins.
+* **No circular pull.** An anchor's target ignores its own satellites. L1's V5_PRE target
+  had been its own caps, so it never moved toward U5.
+* **New rule kind `tight(nets, max_mm, weight)`** for a loop the datasheet wants small: a
+  buck's SW/BOOT, its FB, a crystal's legs. It is weighted in both stages and checked.
+
+Results on the same router (single routes):
+
+| intent placement | open | vias | routed mm | route |
+|---|---|---|---|---|
+| before the local pass | 0 | 328 | 2594 | 303 s |
+| local pass, first turn that fits | 0 | 280 | 2258 | 122 s |
+| local pass, cheapest turn | 2 (FLASH_RX, POT_SCK at U1) | 262 | 2131 | 340 s |
+| hand R2, stripped (+3V3 open) | 3 | 253 | 2484 | 603 s |
+
+On equal terms the 280 is level with the hand board's 253. The hand board leaves +3V3
+open, and +3V3 alone takes 27 vias and 189 mm on the intent board. +3V3 is a supply routed
+as a signal tree, so it is the case for **pours from intent**, the next piece of (p).
+
 **Held copper on paste-window lands, every board (survey 2026-11-10, main 622e87e).** These
 are lands with F.Paste-only windows, which the router could not start a path from before
 e8f7d95, that also carry held copper or an exception. No board is edited: each one is held
