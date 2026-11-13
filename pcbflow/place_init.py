@@ -393,6 +393,14 @@ def _place_grow(parts, notes, rules, keep=()):
     P2 = pi.Placed(parts, pl2)
     good = True
     for h, c, name, msg, _ in grows:
+        # ⚠ THE RETRY CAN LOSE THE ANCHOR (output_board ob9, 2026-11-13): held in its square,
+        # U14 found no room and was not in pl2 -- a KeyError killed the flow. No seat is
+        # "did not turn": the grow failed and the floorplan stands, as for any other miss.
+        if h["anchor"] not in pl2:
+            good = False
+            log.append("GROW TRIED: region %s, %s -- %s found no room in the retry; the floorplan "
+                       "stands as written" % (name, msg, h["anchor"]))
+            continue
         turned = abs((pl2[h["anchor"]][2] - h["to"] + 180.0) % 360.0 - 180.0) < 0.5
         r_ = [r for r in rules if (r.get("ref") == c or r.get("cap") == c) and r["kind"] in ("near", "decap")]
         try:
