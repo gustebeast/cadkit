@@ -4311,7 +4311,14 @@ def _stitch_plane_pads(board, nets_wanted, outline, via_d=0.6, via_drill=0.3,
               break
           if _lanes and not _lane_on[0]:
               lane_crossed.append("%s.%s" % (fp.GetReference(), pad.GetNumber()))
-          for strict[0] in (True, False):
+          # ⚠ THE NON-STRICT RETRY IS FOR A THROUGH-HOLE PAD ONLY: its search ring starts in
+          # its own barrel (see `holes` above). An SMD pad that finds no strict site has no
+          # such excuse, and the retry put output_power's J2.A1 stitch 0.227 mm drill to drill
+          # from the same socket's shell slot (quality A12, 2026-11-13). A board passing A12
+          # never took this branch for an SMD pad, so none of them moves; an SMD pad left
+          # without a site is REPORTED below as no room, as the docstring promises.
+          _pth = pad.GetAttribute() in (pcbnew.PAD_ATTRIB_PTH, pcbnew.PAD_ATTRIB_NPTH)
+          for strict[0] in ((True, False) if _pth else (True,)):
             # ⚠ A FINE RADIAL STEP, because the spot that works is sometimes a slot rather
             # than a field. The ESD array's centre pin is its GROUND -- where the clamp
             # diodes dump what they catch -- and it is boxed in: the pair's two rails leave
@@ -5221,6 +5228,14 @@ def build(stem):
                 raise SystemExit("declared via %s at (%.2f, %.2f) stands in a slug_max "
                                  "ring (see _slug_rings)" % (_v[0], _v[1], _v[2]))
     stitch = set(notes.get("stitch_nets", ()))
+    # ⚠ A PLANE WITH NO stitch_nets IS A PLANE NOTHING REACHES BY VIA: no exposed pad gets
+    # one, and quality A8 only says so after a full finish. The output split and the brain
+    # (2026-11-13) each copied `zones` from a template and not this key -- say it here.
+    _planes = sorted({z[0] for z in notes.get("zones", ())
+                      if isinstance(z, (list, tuple)) and "GND" in str(z[0]).upper()})
+    if _planes and not stitch:
+        print("  WARNING: ground plane(s) %s but no stitch_nets -- exposed pads and ground "
+              "pads get NO via to the plane (quality A8). Declare stitch_nets." % "/".join(_planes))
     if stitch:
         n = _stitch_plane_pads(board, stitch, _outline_pts(notes),
                                allow=set(notes.get("stitch_exceptions", ())),

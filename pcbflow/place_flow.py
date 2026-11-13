@@ -237,6 +237,18 @@ def _pours(notes, parts, pl, rules, base_zones):
         if r["kind"] != "pour":
             continue
         poly = pi.pour_poly(r, P, notes_r, amps_of(r))
+        if poly is not None and r.get("auto_amps") is not None:
+            ow, ol = (notes.get("outline_mm") or (0, 0))[:2]
+            area = abs(sum(poly[i][0] * poly[i - 1][1] - poly[i - 1][0] * poly[i][1]
+                           for i in range(len(poly)))) / 2.0
+            if ow and ol and area > r["max_frac"] * ow * ol:
+                w = pi.width_for(r["auto_amps"])
+                nw = notes.setdefault("net_widths", {})
+                nw[r["net"]] = max(nw.get(r["net"], 0.0), w)
+                out.append("%s on %s: auto pour would cover %.0f %% of the board (max %.0f %%) -- "
+                           "NOT poured, width %.2f mm instead" % (r["net"], r["layer"],
+                                                                   100 * area / (ow * ol), 100 * r["max_frac"], w))
+                continue
         if poly is None:
             out.append("%s on %s: NO OUTLINE (region %r unknown, no pins along) -- not poured"
                        % (r["net"], r["layer"], r.get("region")))
@@ -334,6 +346,11 @@ def flow(d, intent_path, auto=True, soft=False, skip_finish=False, fold=False, k
         notes["back_refs"] = sorted(set(notes.get("back_refs", ())) | set(back))
         print("place_flow: two-sided: %d part(s) on the back (B.Cu)" % len(back))
         log.write("## two-sided: %s on the back\n" % " ".join(back))
+    # opt-in: big currents as pours, not tracks (place_intent.auto_pour)
+    rules, aplines = pi.auto_pour(rules, parts, notes)
+    for a_ in aplines:
+        print("place_flow: AUTO_POUR " + a_)
+        log.write("## auto_pour: %s\n" % a_)
     # power is a width, from the current it carries (place_intent.widths): never narrower
     # than the notes already declare
     nw = dict(notes.get("net_widths", {}) or {})
