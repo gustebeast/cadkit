@@ -232,7 +232,7 @@ def _pours(notes, parts, pl, rules, base_zones):
     # pours on B.Cu, motor_ctrl v4: DRC zones_intersect)
     mine = {(r["net"], r["layer"]) for r in rules if r["kind"] == "pour"}
     base_zones = [z for z in base_zones if not (isinstance(z, dict) and (z.get("net"), z.get("layer")) in mine)]
-    zones, out = list(base_zones), []
+    zones, out, pv = list(base_zones), [], []
     for r in rules:
         if r["kind"] != "pour":
             continue
@@ -263,12 +263,21 @@ def _pours(notes, parts, pl, rules, base_zones):
         if "priority" not in r and pr in taken:
             pr = max(taken) + 1
         zones.append({"net": r["net"], "layer": r["layer"], "poly": poly, "priority": pr})
+        # opt-in (`pad_vias`, set by auto_pour): the pour's big lands on another layer get a
+        # via array sized to the current -- layout._pour_pad_vias
+        if (r.get("pad_vias") or r.get("auto_amps") is not None) and r.get("along") and amps_of(r):
+            pv.append({"net": r["net"], "layer": r["layer"], "pads": list(r["along"]),
+                       "amps": amps_of(r), "width_mm": pi.width_for(amps_of(r))})
         f = pi.pour_foreign(r, P, poly)
         out.append("%s on %s %s: %d corner(s), %s" % (
             r["net"], r["layer"], ("region " + r["region"]) if r.get("region") else "along " + "-".join(r["along"]),
             len(poly), ("%d other net pad(s) inside -- the layer may not have room: %s" % (len(f), " ".join(f[:8])))
             if f else "no other net's pad inside"))
     notes["zones"] = zones
+    if pv:
+        notes["pour_vias"] = pv
+    else:
+        notes.pop("pour_vias", None)      # never set on a board that does not opt in
     return out
 
 
@@ -322,6 +331,16 @@ def flow(d, intent_path, auto=True, soft=False, skip_finish=False, fold=False, k
         if rc or not os.path.exists(parts_path):
             raise SystemExit("place_flow: place_geom --from-net failed: " + out[-2000:])
     parts = json.load(open(parts_path, encoding="utf-8"))["parts"]
+    # ⚠ A FLOW'S OUTPUT NOTES ARE NOT ITS INPUT (brain br9 rerun, 2026-11-13): the run rewrites
+    # <stem>.board.json with every part's placement, and a "control" rerun copied from that
+    # file started from br9's finished layout as seeds -- 21 failed nets against br9's 1, read
+    # at first as the router drifting. A notes file that already places most of the board is
+    # said out loud; a clean rerun copies <dir>/flow/input.board.json instead.
+    _npl = len(set(notes.get("placements", {}) or {}) & set(parts))
+    if parts and _npl >= 0.5 * len(parts):
+        print("place_flow: WARNING: the input notes already place %d of %d parts -- a previous flow's "
+              "OUTPUT? Those are seeds, not a fresh start (a clean rerun copies flow/input.board.json)"
+              % (_npl, len(parts)))
     if fold:
         post = list(notes.get("post_route_refs", ()))
         miss = [r_ for r_ in post if r_ not in parts]
