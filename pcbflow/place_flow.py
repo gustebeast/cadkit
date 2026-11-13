@@ -460,9 +460,23 @@ def flow(d, intent_path, auto=True, soft=False, skip_finish=False, fold=False, k
                 room += ["%s (silk label: no free site)" % x.strip() for x in m.group(1).split(",")]
         try:
             dr = json.load(open(stem + ".finish.drc.json", encoding="utf-8"))
-            fin = {"unconnected": len(dr.get("unconnected_items", [])), "violations": len(dr.get("violations", [])),
-                   "rc": rc}
-            fin["by_type"] = dict(collections.Counter(v.get("type") for v in dr.get("violations", [])))
+            # ⚠ COUNT AS finish.py COUNTS (lever_sensor holdout 2d, 2026-11-12): finish said "0
+            # violation(s)" and this report said 10 -- nine silk_overlap WARNINGS and the J1/J2
+            # courtyard the project DECLARES (pcb_declared.py). Errors that are not declared are
+            # the violations; declared ones and warnings are listed apart.
+            vs = dr.get("violations", [])
+            warn = [v for v in vs if v.get("severity") == "warning"]
+            err = [v for v in vs if v.get("severity") != "warning"]
+            try:
+                import finish as _fin
+                import netcheck as _nc
+                ok_, bad_ = _nc.classify_violations(dict(dr, violations=err), _fin._declared(stem))
+            except Exception:                       # no project / no declarations: all count
+                ok_, bad_ = [], [(v.get("type"), []) for v in err]
+            fin = {"unconnected": len(dr.get("unconnected_items", [])), "violations": len(bad_),
+                   "declared": len(ok_), "warnings": len(warn), "rc": rc}
+            fin["by_type"] = dict(collections.Counter(t for t, _ in bad_))
+            fin["warn_by_type"] = dict(collections.Counter(v.get("type") for v in warn))
             fin["unconnected_nets"] = sorted({i.get("description", "").split("[")[-1].split("]")[0]
                                               for x in dr.get("unconnected_items", []) for i in x.get("items", [])
                                               if "[" in i.get("description", "")})
@@ -536,7 +550,9 @@ def _report(fd, base, rules, init_log, cells_log, gates, score, fin, qual, why, 
         L += ["", "finish: %s" % (fin.get("error") or "%d unconnected%s, %d violation(s)%s" % (
             fin["unconnected"], (" (" + " ".join(fin.get("unconnected_nets", ())) + ")") if fin["unconnected"] else "",
             fin["violations"], (" (" + ", ".join("%s %d" % kv for kv in sorted(fin.get("by_type", {}).items())) + ")")
-            if fin["violations"] else ""))]
+            if fin["violations"] else "") + (", %d declared" % fin["declared"] if fin.get("declared") else "")
+            + (", %d warning(s) (%s)" % (fin["warnings"], ", ".join("%s %d" % kv for kv in sorted(fin.get("warn_by_type", {}).items())))
+               if fin.get("warnings") else ""))]
     if qual:
         L += ["quality: %s" % (qual.get("error") or "%s FAIL, %s OPEN%s" % (
             qual["fail"], qual["open"], (" (" + " ".join(map(str, qual["failed"])) + ")") if qual.get("failed") else ""))]
