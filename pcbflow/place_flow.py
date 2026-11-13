@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import collections
 import json
+import numpy as np
 import math
 import os
 import re
@@ -401,6 +402,9 @@ def flow(d, intent_path, auto=True, soft=False, skip_finish=False, fold=False, k
         _report(fd, base, rules, init_log, [], [], None, None, None, why, T,
                 refused="intent check: BROKEN hard mechanical rules\n" + "\n".join(broken[:20]), floor=floor, room=room)
         return 2
+    for w_ in _chain_warns(rules, parts, pl):
+        say("WARN " + w_)
+        floor.append(w_)
     wlines = _raise_widths(notes, parts, pl, keep_widths)
     for w_ in wlines:
         say("WIDTH " + w_)
@@ -493,6 +497,49 @@ def flow(d, intent_path, auto=True, soft=False, skip_finish=False, fold=False, k
     _report(fd, base, rules, init_log, cells_log, gates, score, fin, qual, why, T, room=room, width=wlines, pours=plines,
             floor=floor)
     return 0
+
+
+CHAIN_WARN_MM = 20.0     # a near-chain's far signal run longer than this is reported
+
+
+def _chain_warns(rules, parts, pl):
+    """WARN lines: a part held in an author's band, a part `near` it, and that part's other
+    small signal nets running far to an IC -- the band is what keeps the chain long.
+
+    ⚠ WHY (motor_ctrl trial, 2026-11-12): the intent banded J1 on the -X edge; U2 (`near` J1)
+    followed it and CAN1_TX / RX ran ~30 mm to U4's pins and stayed open in every run. The
+    band was an authoring error (J1 is mid-board on the hand board and in the CAD), and
+    nothing said so. A WARN, not a stop: the band may be real, and then the run is the price."""
+    band = {x: r_["region"] for r_ in rules if r_["kind"] == "in_region" for x in pi._refs(r_["refs"], parts)}
+    net_of = {}
+    for ref, v in parts.items():
+        for q in v["pads"]:
+            if q["net"]:
+                net_of.setdefault(q["net"], []).append((ref, q["num"]))
+    P = pi.Placed(parts, pl)
+    out = []
+    for r_ in rules:
+        if r_["kind"] != "near" or "ref" not in r_ or r_["ref"] not in pl:
+            continue
+        y = r_["ref"]
+        x = (r_.get("target") or "").split(".")[0]
+        if x not in band:
+            continue
+        xn = {q["net"] for q in parts.get(x, {}).get("pads", ()) if q["net"]}
+        for q in parts[y]["pads"]:
+            nm = q["net"]
+            ends = net_of.get(nm, ())
+            if (not nm or nm in xn or nm in ("GND",) or pi.SUPPLY.search(nm) or len(ends) > 4):
+                continue
+            for z, num in ends:
+                if z in (x, y) or z not in pl or not re.match(r"^U\d", z):
+                    continue
+                d = float(np.hypot(*(P.pad(y, q["num"]) - P.pad(z, num))))
+                if d > CHAIN_WARN_MM:
+                    out.append("CHAIN %s (band %s) -> %s (near %s, %.0f mm) -> %s.%s %s: %.1f mm -- the band holds the "
+                               "chain's IC end far away; is %s's band mechanical?"
+                               % (x, band[x], y, x, float(r_.get("max_mm", 0)), z, num, nm, d, x))
+    return out
 
 
 def _rule_refs(r, parts):
